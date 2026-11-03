@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yomou/core/theme/amoled.dart';
+import 'package:yomou/core/widgets/responsive.dart' show usesWideLayout;
 import 'package:yomou/core/widgets/ios/ios_press.dart';
 import 'package:yomou/data/models/manga.dart';
 import 'package:yomou/features/library/screens/manga_detail_screen.dart';
@@ -126,20 +127,54 @@ class _FeaturedCarouselState extends ConsumerState<FeaturedCarousel> {
             else if (featured.isNotEmpty) ...[
               SizedBox(
                 height: layout.height,
-                child: PageView.builder(
-                  controller: _controllerFor(layout, featured.length),
-                  onPageChanged: (index) {
-                    if (featured.isEmpty) return;
-                    setState(() => _current = index % featured.length);
-                  },
-                  itemBuilder: (context, index) => TickerMode(
-                    enabled: !reduceMotion,
-                    child: _FeaturedCard(
-                      manga: featured[index % featured.length],
-                      index: index % featured.length,
-                      layout: layout,
+                child: Stack(
+                  children: [
+                    PageView.builder(
+                      controller: _controllerFor(layout, featured.length),
+                      onPageChanged: (index) {
+                        if (featured.isEmpty) return;
+                        setState(() => _current = index % featured.length);
+                      },
+                      itemBuilder: (context, index) => TickerMode(
+                        enabled: !reduceMotion,
+                        child: _FeaturedCard(
+                          manga: featured[index % featured.length],
+                          index: index % featured.length,
+                          layout: layout,
+                        ),
+                      ),
                     ),
-                  ),
+                    if (usesWideLayout(context) && featured.length > 1) ...[
+                      Positioned(
+                        left: 6,
+                        top: 0,
+                        bottom: 0,
+                        child: Center(
+                          child: _CarouselNavButton(
+                            icon: Icons.chevron_left_rounded,
+                            onTap: () => _pageController?.previousPage(
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOutCubic,
+                            ),
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        right: 6,
+                        top: 0,
+                        bottom: 0,
+                        child: Center(
+                          child: _CarouselNavButton(
+                            icon: Icons.chevron_right_rounded,
+                            onTap: () => _pageController?.nextPage(
+                              duration: const Duration(milliseconds: 260),
+                              curve: Curves.easeOutCubic,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               const SizedBox(height: 12),
@@ -1087,4 +1122,43 @@ class _FeaturedLayout {
 
   /// The index number in the corner.
   final double watermarkSize;
+}
+
+
+/// Small semi-transparent arrow button used to page the featured carousel on
+/// wide (desktop) windows where swiping is not the natural gesture.
+class _CarouselNavButton extends StatelessWidget {
+  const _CarouselNavButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.45),
+            shape: BoxShape.circle,
+            border: Border.all(
+              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.12),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(6),
+            child: Icon(
+              icon,
+              size: 26,
+              color: dark ? Colors.white : Colors.black87,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
