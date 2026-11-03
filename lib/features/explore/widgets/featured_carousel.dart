@@ -1143,10 +1143,10 @@ class _CarouselNavButton extends StatelessWidget {
         customBorder: const CircleBorder(),
         child: Ink(
           decoration: BoxDecoration(
-            color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.45),
+            color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.78),
             shape: BoxShape.circle,
             border: Border.all(
-              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.12),
+              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.25),
             ),
           ),
           child: Padding(
