@@ -1,0 +1,286 @@
+import 'dart:convert';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:yomou/features/content_preferences/providers/content_preferences_provider.dart';
+import 'package:yomou/l10n/generated/app_localizations.dart';
+
+/// The id of the built-in "show everything" preset.
+///
+/// It is seeded on first load, cannot be renamed or deleted, and carries no
+/// languages: an empty selection filters nothing, which is exactly what "all
+/// sources" means.
+const String kAllPresetId = 'all';
+
+const String _presetsKey = 'sourcePresets';
+const String _activePresetKey = 'sourcePresets.activeId';
+
+/// One named language bundle.
+///
+/// The name is free text and may be empty, in which case the UI shows a
+/// localized fallback ("My sources"): a preset created without a name has no
+/// locale available where it is made, so the display name has to be decided
+/// where the string can be translated.
+class SourcePreset {
+  const SourcePreset({
+    required this.id,
+    this.name = '',
+    this.languages = const {},
+  });
+
+  final String id;
+  final String name;
+  final Set<String> languages;
+
+  bool get isAll => id == kAllPresetId;
+
+  SourcePreset copyWith({String? name, Set<String>? languages}) {
+    return SourcePreset(
+      id: id,
+      name: name ?? this.name,
+      languages: languages ?? this.languages,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'languages': languages.toList(),
+      };
+
+  factory SourcePreset.fromJson(Map<String, dynamic> json) {
+    return SourcePreset(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      languages: ((json['languages'] as List?) ?? const [])
+          .whereType<String>()
+          .toSet(),
+    );
+  }
+}
+
+/// The list of presets plus whichever one is active.
+class SourcePresetsState {
+  const SourcePresetsState({required this.presets, required this.activeId});
+
+  final List<SourcePreset> presets;
+  final String activeId;
+
+  SourcePreset get active => presets.firstWhere(
+        (p) => p.id == activeId,
+        orElse: () => const SourcePreset(id: kAllPresetId),
+      );
+}
+
+/// Owns the preset list and the active id, and keeps the effective language
+/// filter (`contentPreferencesProvider`) pointed at the active preset.
+///
+/// Two sinks write into the same filter:
+/// - switching presets here writes the active preset's languages back into
+///   [contentPreferencesProvider], which is what the source lists actually
+///   watch;
+/// - editing the language chips (welcome sheet or settings) writes the new
+///   selection back through [syncLanguages] so a custom preset never drifts
+///   from what the reader sees filtered. The built-in "all" is left untouched:
+///   picking a language is a filter, not a request for a preset.
+class SourcePresetsNotifier extends StateNotifier<SourcePresetsState> {
+  SourcePresetsNotifier(this._ref)
+      : super(const SourcePresetsState(
+          presets: [SourcePreset(id: kAllPresetId)],
+          activeId: kAllPresetId,
+        )) {
+    _load();
+  }
+
+  final Ref _ref;
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+
+    final stored = p.getString(_presetsKey);
+    if (stored == null) {
+      // First run of the presets feature. Seed only the built-in "all": the
+      // language filter is owned by [contentPreferencesProvider] and applies
+      // whether or not a preset exists, so a fresh install must not end up
+      // carrying a preset the reader never created.
+      state = const SourcePresetsState(
+        presets: [SourcePreset(id: kAllPresetId)],
+        activeId: kAllPresetId,
+      );
+      await _persist();
+      return;
+    }
+
+    final decoded = jsonDecode(stored) as List;
+    final presets = decoded
+        .map((e) => SourcePreset.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final activeId = p.getString(_activePresetKey) ?? kAllPresetId;
+    state = SourcePresetsState(presets: presets, activeId: activeId);
+  }
+
+  /// Makes [id] the active preset and points the language filter at it.
+  ///
+  /// Called from the Explore switcher and the manager sheet. Because switching
+  /// presets *is* changing the languages the reader wants, it also persists
+  /// them under the original `onboarding.languages` key so the filter agrees
+  /// with the active preset even before this notifier has loaded.
+  void activate(String id) {
+    if (!state.presets.any((p) => p.id == id)) return;
+    state = SourcePresetsState(presets: state.presets, activeId: id);
+    final languages = state.active.languages;
+    _ref.read(contentPreferencesProvider.notifier).setLanguages(languages);
+    _persistActive();
+  }
+
+  /// Fold a freshly edited language selection back into the active preset.
+  ///
+  /// The editor writes the selection to [contentPreferencesProvider] first and
+  /// reports it here so a custom preset stays the source of truth for that
+  /// selection. While the built-in "all" is active there is no preset to
+  /// update, and editing the chips must not invent one: choosing a language on
+  /// the welcome sheet is a filter, not a request for a preset. The caller has
+  /// already persisted the filter, so this is a no-op then.
+  void syncLanguages(Set<String> languages) {
+    if (state.active.isAll) return;
+    if (state.active.languages.length == languages.length &&
+        state.active.languages.containsAll(languages)) {
+      return;
+    }
+    final updated = state.presets
+        .map((p) => p.id == state.activeId ? p.copyWith(languages: {...languages}) : p)
+        .toList();
+    state = SourcePresetsState(presets: updated, activeId: state.activeId);
+    _persist();
+  }
+
+  /// Clones the current selection into a new preset and activates it.
+  void createFromCurrent({String? name}) {
+    final languages = _ref.read(contentPreferencesProvider).languages;
+    final preset = SourcePreset(
+      id: _newId(),
+      name: name ?? '',
+      languages: {...languages},
+    );
+    state = SourcePresetsState(
+      presets: [...state.presets, preset],
+      activeId: preset.id,
+    );
+    _persist();
+  }
+
+  /// Creates a new preset from an explicit name and language selection, then
+  /// makes it the active one so the filter follows what was just saved.
+  ///
+  /// Unlike [createFromCurrent], this does not read the current filter: the
+  /// editor has already collected the languages the reader wants, and taking
+  /// them from the live filter would ignore an edit that also cleared one.
+  void create({String name = '', required Set<String> languages}) {
+    final preset = SourcePreset(
+      id: _newId(),
+      name: name.trim(),
+      languages: {...languages},
+    );
+    state = SourcePresetsState(
+      presets: [...state.presets, preset],
+      activeId: preset.id,
+    );
+    _ref.read(contentPreferencesProvider.notifier).setLanguages({...languages});
+    _persist();
+  }
+
+  /// Rewrites a custom preset's name and languages in place.
+  ///
+  /// When the edited preset is the active one the language filter is updated
+  /// with it; editing a preset the reader is not currently using must not
+  /// change what Explore is showing.
+  void update(
+    String id, {
+    required String name,
+    required Set<String> languages,
+  }) {
+    if (id == kAllPresetId) return;
+    if (!state.presets.any((p) => p.id == id)) return;
+    final updated = state.presets
+        .map(
+          (p) => p.id == id
+              ? p.copyWith(name: name.trim(), languages: {...languages})
+              : p,
+        )
+        .toList();
+    state = SourcePresetsState(presets: updated, activeId: state.activeId);
+    if (state.activeId == id) {
+      _ref.read(contentPreferencesProvider.notifier).setLanguages({...languages});
+    }
+    _persist();
+  }
+
+  /// Renames a custom preset. An empty name falls back to the localized
+  /// "My sources" label at display time.
+  void rename(String id, String name) {
+    if (id == kAllPresetId) return;
+    final updated = state.presets
+        .map((p) => p.id == id ? p.copyWith(name: name.trim()) : p)
+        .toList();
+    state = SourcePresetsState(presets: updated, activeId: state.activeId);
+    _persist();
+  }
+
+  /// Deletes a custom preset. Deleting the active one falls back to "all",
+  /// which clears the language filter with it.
+  void delete(String id) {
+    if (id == kAllPresetId) return;
+    if (!state.presets.any((p) => p.id == id)) return;
+    final remaining = state.presets.where((p) => p.id != id).toList();
+    var activeId = state.activeId;
+    if (activeId == id) {
+      activeId = kAllPresetId;
+      _ref.read(contentPreferencesProvider.notifier).setLanguages(const {});
+    }
+    state = SourcePresetsState(presets: remaining, activeId: activeId);
+    _persist();
+  }
+
+  String _newId() => 'p${DateTime.now().microsecondsSinceEpoch}';
+
+  /// Writes the current presets and active id.
+  ///
+  /// Both values are snapshotted before the first `await`: the notifier can be
+  /// disposed while a write is in flight, and reading `state` after that point
+  /// throws rather than letting the last write land.
+  Future<void> _persist() async {
+    final presets = state.presets;
+    final activeId = state.activeId;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(
+      _presetsKey,
+      jsonEncode(presets.map((preset) => preset.toJson()).toList()),
+    );
+    await p.setString(_activePresetKey, activeId);
+  }
+
+  Future<void> _persistActive() async {
+    final activeId = state.activeId;
+    final p = await SharedPreferences.getInstance();
+    await p.setString(_activePresetKey, activeId);
+  }
+}
+
+final sourcePresetsProvider =
+    StateNotifierProvider<SourcePresetsNotifier, SourcePresetsState>(
+      (ref) => SourcePresetsNotifier(ref),
+    );
+
+/// The currently active preset, for widgets that only need that one.
+final activePresetProvider = Provider<SourcePreset>((ref) {
+  return ref.watch(sourcePresetsProvider).active;
+});
+
+/// Display name for a preset: localized for the built-in "all" and for
+/// presets the user has not named yet.
+String sourcePresetLabel(AppLocalizations l, SourcePreset preset) {
+  if (preset.isAll) return l.presetsAllSources;
+  if (preset.name.trim().isEmpty) return l.presetsMySources;
+  return preset.name;
+}

@@ -1,0 +1,1787 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:async';
+import 'dart:ui' show ImageFilter;
+import 'dart:io';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:yomou/core/theme/amoled.dart';
+import 'package:yomou/features/suggestions/screens/suggestions_screen.dart';
+import 'features/history/screens/history_screen.dart';
+import 'features/library/screens/favorites_screen.dart';
+import 'package:yomou/features/library/screens/manga_detail_screen.dart';
+import 'package:yomou/features/explore/screens/explore_screen.dart';
+import 'package:yomou/features/feed/screens/feed_screen.dart';
+import 'package:yomou/features/feed/providers/updates_provider.dart';
+import 'package:yomou/core/theme/layout.dart';
+import 'package:yomou/core/widgets/ios/ios_toast.dart';
+import 'package:yomou/core/widgets/responsive.dart';
+import 'package:yomou/features/reader/screens/reader_screen.dart';
+import 'package:yomou/core/database/database_helper.dart';
+import 'package:yomou/services/widget_service.dart';
+import 'package:yomou/core/database/source_cache.dart';
+import 'package:yomou/core/notifications/background_tasks.dart';
+import 'package:yomou/core/notifications/notification_service.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yomou/data/models/chapter.dart';
+import 'package:yomou/data/providers/sources_provider.dart';
+import 'package:yomou/features/settings/providers/appearance_provider.dart';
+import 'package:yomou/core/security/app_lock.dart';
+import 'package:yomou/core/security/pin_lock_screen.dart';
+import 'package:yomou/core/deep_links.dart';
+import 'package:yomou/core/diagnostics/source_selftest.dart';
+import 'package:yomou/core/haptics.dart';
+import 'package:yomou/core/providers/incognito_provider.dart';
+import 'package:yomou/core/providers/selection_provider.dart';
+import 'package:yomou/features/content_preferences/providers/content_preferences_provider.dart';
+import 'package:yomou/features/onboarding/welcome_sheet.dart';
+import 'package:yomou/features/whats_new/whats_new_sheet.dart';
+import 'package:yomou/core/changelog/changelog.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:yomou/l10n/generated/app_localizations.dart';
+import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
+
+/// Navigator handle used to route notification taps (deep link) after the
+/// widget tree is built.
+/// The active navigator key. Reassigned by [restartApp] so each rebuilt tree
+/// gets a key Flutter has never seen: reusing one across the swap would let it
+/// reparent the old Navigator and keep the route stack we are trying to drop.
+GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Draw edge-to-edge: the app's canvas runs under both system bars, so the
+  // floating nav pill and the lists' bottom clearance (bottomBarClearance)
+  // can sit on top of the system navigation area. The bars are transparent so
+  // whatever is behind them -- covers, lists, the pill -- shows through,
+  // instead of the opaque black strip the platform theme would otherwise
+  // paint around the gesture handle.
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+      systemNavigationBarDividerColor: Colors.transparent,
+    ),
+  );
+
+  // 1. Fix the Database Crash for Linux/Windows/MacOS
+  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
+
+  final mobile = Platform.isAndroid || Platform.isIOS;
+  if (mobile) {
+    try {
+      await NotificationService.instance.init(
+        onSelect: _handleNotificationResponse,
+      );
+    } catch (_) {
+      // Notification init failing (e.g. missing icon resource on some
+      // releases) must never block the app from starting.
+    }
+    // Unconditional: chapter downloads run as WorkManager jobs too, and must
+    // stay schedulable even with new-chapter notifications switched off.
+    try {
+      await ensureWorkManagerInitialized();
+    } catch (_) {}
+    if (!Platform.isIOS && await NotificationService.instance.isEnabled()) {
+      try {
+        await registerUpdateCheckTask();
+      } catch (_) {}
+    }
+  }
+
+  // 2. Run the app.
+  restartApp();
+
+  // 2a. Open yomou:// links shared from the app that launched it (the launch
+  // intent carries the link). The listener stays registered so links tapped
+  // while the app is already running reach Dart through onNewIntent.
+  if (Platform.isAndroid) {
+    try {
+      await attachDeepLinkListener();
+    } catch (_) {}
+  }
+
+  // 2b. Opt-in bring-up check for browser-rendered sources.
+  SourceSelfTest.schedule();
+
+  // 3. If a notification launched the app, replay it faithfully once we have
+  // a frame: action presses keep their actionId, so a cold-start READ opens
+  // the suggestion's detail page and MORE the suggestions feed.
+  if (mobile) {
+    final response = await NotificationService.instance.launchResponse();
+    if (response != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _handleNotificationResponse(response),
+      );
+    }
+  }
+}
+
+/// Builds the app from scratch: a fresh `ProviderScope` (so every provider
+/// re-reads its store) and a fresh widget tree, used by "Erase all data" and
+/// "Reset settings" so a reset takes effect immediately without a process kill.
+///
+/// The generation key is what makes this a rebuild rather than an update: with
+/// the same key Flutter would keep the existing `ProviderScope` element -- and
+/// its container -- alive. Safe to call repeatedly.
+void restartApp() {
+  _appGeneration++;
+  appNavigatorKey = GlobalKey<NavigatorState>();
+  runApp(
+    ProviderScope(
+      key: ValueKey(_appGeneration),
+      child: const YomouApp(),
+    ),
+  );
+}
+
+int _appGeneration = 0;
+
+/// Routes taps and action button presses on notifications:
+/// - tap on the group summary / feed payload → updates feed,
+/// - tap on an individual "new chapter" alert → the series page (only when the
+///   series actually exists in the library; preview payloads are skipped).
+void _handleNotificationResponse(NotificationResponse response) {
+  // TODO temporary diagnostics, remove before commit
+  debugPrint('notif response type=${response.notificationResponseType} '
+      'action=${response.actionId} payload=${response.payload}');
+  final navigator = appNavigatorKey.currentState;
+  if (navigator == null) return;
+  if (response.actionId != null) {
+    final target = NotificationService.decodeTarget(response.payload);
+    if (target == null || target.mangaId.isEmpty) return;
+    if (target.kind == 'suggestion') {
+      if (response.actionId == NotificationService.readActionId) {
+        _openMangaDetail(navigator, target);
+        return;
+      }
+      if (response.actionId == NotificationService.moreActionId) {
+        navigator.push(
+          MaterialPageRoute(builder: (_) => const SuggestionsScreen()),
+        );
+        return;
+      }
+    }
+    return;
+  }
+  if (response.payload == NotificationService.payloadFeed) {
+    navigator.push(MaterialPageRoute(builder: (_) => const FeedScreen()));
+    return;
+  }
+  final target = NotificationService.decodeTarget(response.payload);
+  if (target == null || target.mangaId.isEmpty) return;
+  // Suggestions aren't in the library yet, so they open straight into the
+  // detail page instead of being resolved through the database first.
+  if (target.kind == 'suggestion') {
+    _openMangaDetail(navigator, target);
+    return;
+  }
+  // A download note (running or finished) carries its series the way the
+  // reference's download states do; the generic library lookup below opens
+  // it like any alert does.
+  unawaited(_openSeriesFromNotification(navigator, target));
+}
+
+void _openMangaDetail(NavigatorState navigator, NotificationTarget target) {
+  // Skip targets missing a real source (e.g. the preview suggestion).
+  if (target.sourceId == null) return;
+  if (!navigator.mounted) return;
+  navigator.push(
+    MaterialPageRoute(
+      builder: (_) => MangaDetailScreen(
+        mangaId: target.mangaId,
+        title: target.title,
+        imageUrl: target.coverUrl,
+        sourceId: target.sourceId,
+      ),
+    ),
+  );
+}
+
+Future<void> _openSeriesFromNotification(
+  NavigatorState navigator,
+  NotificationTarget target,
+) async {
+  final row = await DatabaseHelper.instance.getManga(target.mangaId);
+  if (row == null || !navigator.mounted) return;
+  _openMangaDetail(navigator, target);
+}
+
+/// Platform channel that delivers `yomou://` links shared from the app.
+/// Cold-start links (the launch intent) come back from `getInitialUri`;
+/// links tapped while the app is already open arrive through `onNewIntent`.
+const MethodChannel _linksChannel = MethodChannel('com.hlomatsi.yomou/links');
+
+/// Starts receiving `yomou://` links and opens the manga they name, mirroring
+/// the notification deep-link path. Called once after runApp; [restartApp]
+/// keeps this listener (same isolate), and routing reads the current navigator
+/// each time, so a rebuilt tree still receives links.
+Future<void> attachDeepLinkListener() async {
+  _linksChannel.setMethodCallHandler((call) async {
+    if (call.method != 'onNewIntent') return null;
+    final args = call.arguments;
+    if (args is String && args.isNotEmpty) {
+      final raw = args;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _handleLink(raw));
+    }
+    return null;
+  });
+  final String? initial;
+  try {
+    initial = await _linksChannel.invokeMethod<String>('getInitialUri');
+  } catch (_) {
+    return; // Platform without the channel (e.g. desktop) — nothing to do.
+  }
+  // Rebound to a non-nullable local so the post-frame closure keeps the type:
+  // captured nullable locals don't carry their promotion into closures.
+  final url = initial ?? '';
+  if (url.isNotEmpty) {
+    WidgetsBinding.instance.addPostFrameCallback((_) => _handleLink(url));
+  }
+}
+
+/// Opens the manga a `yomou://manga` link refers to: the same detail page a
+/// notification tap opens. Links only name sources the app knows, so an
+/// unknown source id is ignored.
+void _handleLink(String raw) {
+  final link = YomouMangaLink.tryParse(raw);
+  if (link == null) return;
+  final navigator = appNavigatorKey.currentState;
+  if (navigator == null || !navigator.mounted) return;
+  if (getSourceBySourceId(link.sourceId) == null) return;
+  navigator.push(
+    MaterialPageRoute(
+      builder: (_) => MangaDetailScreen(
+        mangaId: link.mangaId,
+        title: link.title,
+        // Shared links carry no cover; the screen falls back to placeholders.
+        imageUrl: '',
+        sourceId: link.sourceId,
+      ),
+    ),
+  );
+}
+
+class YomouApp extends ConsumerWidget {
+  const YomouApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = ref.watch(themeNotifierProvider);
+    final language = ref.watch(appearanceSettingsProvider).language;
+
+    return MaterialApp(
+      title: 'Yomou',
+      debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
+      themeMode: theme.mode,
+      theme: theme.lightTheme,
+      darkTheme: theme.darkTheme,
+      locale: language == 'system' ? null : Locale(language),
+      supportedLocales: AppLocalizations.supportedLocales,
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      builder: (context, child) {
+        // The system navigation bar is transparent, so its gesture handle and
+        // icons must stay readable against whatever the app draws behind them.
+        // Match the app's current brightness. (An enclosing region supersedes
+        // an AppBar's navigation-bar properties, so this wins app-wide.)
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final uiScale = ref
+            .watch(appearanceSettingsProvider)
+            .uiScale
+            .clamp(0.75, 1.25);
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            systemNavigationBarColor: Colors.transparent,
+            systemNavigationBarDividerColor: Colors.transparent,
+            systemNavigationBarIconBrightness:
+                dark ? Brightness.light : Brightness.dark,
+          ),
+          child: _AppZoom(
+            scale: uiScale,
+            child: Stack(
+              children: [
+                // The OS font scale is deliberately not applied: the app has
+                // its own Display size setting, and honouring both would
+                // multiply the two.
+                MediaQuery(
+                  data: MediaQuery.of(context)
+                      .copyWith(textScaler: TextScaler.noScaling),
+                  child: child!,
+                ),
+                // Sits above every route so the PIN lock covers the whole app
+                // (reader, detail views, settings) whenever it's active.
+                Consumer(
+                  builder: (context, ref, _) {
+                    final lock = ref.watch(appLockProvider);
+                    return lock.locked
+                        ? const PinLockScreen()
+                        : const SizedBox.shrink();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      home: const HomeScreen(),
+    );
+  }
+}
+
+/// Emulates Android's "Display size" by laying the app out in a smaller
+/// logical viewport and painting it back up to the real one.
+///
+/// Flutter has no density override, so this is the honest way to zoom the whole
+/// tree: [MediaQuery] is rewritten to the smaller logical size, which is what
+/// the responsive breakpoints should see, and [FittedBox] scales the result to
+/// fill the window. FittedBox is used rather than a bare [Transform] because it
+/// keeps its own layout size at the full window, so taps in the outer strip
+/// still hit the widgets drawn there.
+class _AppZoom extends StatelessWidget {
+  const _AppZoom({required this.scale, required this.child});
+
+  final double scale;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (scale == 1) return child;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = constraints.biggest;
+        if (!size.isFinite) return child;
+        final zoomed = Size(size.width / scale, size.height / scale);
+        final mq = MediaQuery.of(context);
+        return FittedBox(
+          fit: BoxFit.fill,
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: zoomed.width,
+            height: zoomed.height,
+            child: MediaQuery(
+              data: mq.copyWith(
+                size: zoomed,
+                // The keyboard and system bars are outside the zoom, so the
+                // space they take has to be expressed in the zoomed units the
+                // tree is laid out in.
+                padding: mq.padding / scale,
+                viewPadding: mq.viewPadding / scale,
+                viewInsets: mq.viewInsets / scale,
+              ),
+              child: child,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class HomeScreen extends ConsumerStatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  ConsumerState<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends ConsumerState<HomeScreen>
+    with WidgetsBindingObserver {
+  static const _tabNames = [
+    'History',
+    'Favorites',
+    'Suggestions',
+    'Explore',
+    'Updates',
+  ];
+  static const _lastUsedTabKey = 'appearance.lastUsedTab';
+
+  int _currentIndex = 0;
+  bool _initialReady = false;
+  Future<int>? _initialTabIndex;
+  bool _isContinuing = false;
+  bool _wasBackgrounded = false;
+
+  // Tabs are built lazily: a tab is only constructed the first time it is
+  // visited, then kept alive by the IndexedStack. This avoids paying for every
+  // tab's network fetches (e.g. multi-source suggestions) at app launch.
+  final Set<int> _visitedTabs = {0};
+
+  // One scroll controller per tab, layered over each screen's primary
+  // scrollable, so re-tapping the active tab can scroll it back to the top.
+  final List<ScrollController> _tabScrollControllers = List.generate(
+    _tabNames.length,
+    (_) => ScrollController(),
+  );
+
+  // Scroll-hide state for the nav bar + FAB (used when pinNavUiOnScroll is off).
+  bool _navHiddenOnScroll = false;
+
+  // Double-back-to-exit tracking (only active when exitConfirmation is on).
+  DateTime? _lastBackPress;
+
+  final List<Widget> _screens = [
+    const HistoryScreen(),
+    const FavoritesScreen(),
+    const SuggestionsScreen(),
+    const ExploreScreen(),
+    const FeedScreen(),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Resolve the first tab before the first real frame so the UI does not
+    // render tab 0 and then jump to "Last used" once prefs are loaded.
+    _initialTabIndex = _resolveInitialTabIndex();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _bootstrap();
+    });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    for (final controller in _tabScrollControllers) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Switches to a tab, or -- when the active tab is tapped again -- scrolls it
+  /// back to the top. Both are deliberate, so both tap back.
+  void _onTabTapped(int index) {
+    appHaptic(ref);
+    if (index == _currentIndex) {
+      final controller = _tabScrollControllers[_currentIndex];
+      if (controller.hasClients) {
+        controller.animateTo(
+          0,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    setState(() => _currentIndex = index);
+    _persistLastUsed(index);
+  }
+
+  // Re-locks the app (if a PIN is set and "Protect the app" is on) whenever
+  // Yomou returns from the background.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      _wasBackgrounded = true;
+    } else if (state == AppLifecycleState.resumed) {
+      if (_wasBackgrounded) {
+        _wasBackgrounded = false;
+        final lock = ref.read(appLockProvider);
+        final protect = ref.read(appearanceSettingsProvider).protectApp;
+        if (!lock.locked && lock.hasPin && protect) {
+          ref.read(appLockProvider.notifier).setLocked(true);
+        }
+      }
+    }
+  }
+
+  Future<int> _resolveInitialTabIndex() async {
+    final prefs = await SharedPreferences.getInstance();
+    final settings = ref.read(appearanceSettingsProvider);
+    final enabled = _enabledTabIndices(settings);
+    final defaultTab = prefs.getString('appearance.defaultTab') ?? 'Last used';
+
+    int idx;
+    if (defaultTab == 'Last used') {
+      idx = prefs.getInt(_lastUsedTabKey) ?? 0;
+    } else {
+      idx = _tabNames.indexOf(defaultTab);
+      if (idx < 0) idx = 0;
+    }
+    if (!enabled.contains(idx)) idx = enabled.first;
+    return idx;
+  }
+
+  Future<void> _persistLastUsed(int index) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_lastUsedTabKey, index);
+  }
+
+  /// First launch: the welcome sheet slides up over the home screen, so the
+  /// reader picks their content languages and formats before anything else.
+  ///
+  /// The home screen still builds underneath -- a blank route behind the sheet
+  /// would leave a flash of nothing when it is dismissed -- and the sheet is
+  /// non-dismissible at this point, so the choices cannot be skipped by
+  /// tapping the scrim.
+  Future<void> _maybeShowWelcome() async {
+    if (await isWelcomeCompleted()) return;
+    // If the user already has existing library data (e.g. after clearing app
+    // data or restoring), don't show the welcome sheet again.
+    try {
+      final db = DatabaseHelper.instance;
+      final history = await db.getHistory();
+      final favorites = await db.getFavorites();
+      if (history.isNotEmpty || favorites.isNotEmpty) {
+        await markWelcomeCompleted();
+        return;
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    await showWelcomeSheet(context, isDismissible: false);
+  }
+
+  /// Post-first-frame startup work, in the order a reader should experience it:
+  /// restore their tab, then the introduction on a fresh install (with the
+  /// notification ask while the intent is fresh), or the changelog after an
+  /// update.
+  ///
+  /// [firstRun] is captured before the welcome sheet because completing it
+  /// flips the stored flag.
+  Future<void> _bootstrap() async {
+    final firstRun = !(await isWelcomeCompleted());
+    await _maybeShowWelcome();
+    final version = (await PackageInfo.fromPlatform()).version;
+    if (firstRun) {
+      await _enableNotificationsOnFirstRun();
+      await markVersionSeen(version);
+    } else {
+      await _maybeShowWhatsNew(version);
+    }
+    unawaited(_refreshUpdatesBadge());
+    // Reload the home screen widget with the latest reading history.
+    unawaited(WidgetService.refresh());
+  }
+
+  /// New-chapter notifications default to on, so ask for the OS permission
+  /// right after the welcome sheet. Granting it schedules the check; denying it
+  /// switches the setting off rather than leaving it on with notifications
+  /// silently blocked, so the switch the reader sees stays honest.
+  Future<void> _enableNotificationsOnFirstRun() async {
+    // Nothing to ask for off mobile: there is no notification plugin and no
+    // scheduler behind the check, so the switch is left alone rather than
+    // switched on with nothing behind it.
+    if (!NotificationService.supported) return;
+    final service = NotificationService.instance;
+    final granted = await service.requestPermission();
+    if (!granted) {
+      await service.setEnabled(false);
+      return;
+    }
+    await service.setEnabled(true);
+    try {
+      if (!Platform.isIOS) {
+        await registerUpdateCheckTask();
+        // Establish a baseline now so enabling never dumps the whole back
+        // catalogue as "new".
+        unawaited(runUpdateCheck());
+      }
+    } catch (_) {}
+  }
+
+  /// Update notes: shown once when the app's version name changes, so a
+  /// returning reader sees what is new after an update.
+  ///
+  /// Keyed on the name (1.1.0), not the build number, so reinstalling the same
+  /// release while developing stays quiet. A fresh install is handled in
+  /// [_bootstrap] instead -- the welcome sheet is its introduction, not a
+  /// changelog.
+  Future<void> _maybeShowWhatsNew(String version) async {
+    if (await readSeenVersion() == version) return;
+    final release = await changelogReleaseFor(version);
+    // Recorded before presenting so a dismissed sheet (or one with no notes)
+    // does not reappear on the next launch.
+    await markVersionSeen(version);
+    if (release == null || release.isEmpty) return;
+    if (!mounted) return;
+    await showWhatsNewSheet(context, release);
+  }
+
+  // Which bottom-nav tabs are shown, honoring the "Main screen sections"
+  // appearance setting. Falls back to History if none are enabled.
+  List<int> _enabledTabIndices(AppearanceSettings settings) {
+    final enabled = <int>[];
+    for (var i = 0; i < _tabNames.length; i++) {
+      if (settings.mainScreenSections[_tabNames[i]] ?? true) enabled.add(i);
+    }
+    return enabled.isEmpty ? const [0] : enabled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Badge comes from a persisted count (updated by the Feed screen), so the
+    // heavy library scan only runs when the user actually opens the Feed tab.
+    final updatesCount = ref.watch(updatesBadgeProvider).value ?? 0;
+    final accent = ref.watch(accentProvider);
+    final settings = ref.watch(appearanceSettingsProvider);
+    // Keep the global incognito flag loaded from the very first frame so the
+    // DB/search layers never write during an incognito session.
+    ref.watch(incognitoProvider);
+    final selectionActive = ref.watch(selectionActiveProvider);
+
+    // Resolve the initial tab asynchronously before the first fully built home
+    // so the UI does not flash tab 0 (and refetch its content) when the saved
+    // "last used" tab differs.
+    if (!_initialReady && _initialTabIndex != null) {
+      return FutureBuilder<int>(
+        future: _initialTabIndex,
+        builder: (context, snapshot) {
+          if (snapshot.hasData) {
+            if (!_initialReady && mounted) {
+              _currentIndex = snapshot.data!;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted && !_initialReady) {
+                  setState(() => _initialReady = true);
+                }
+              });
+            }
+          }
+          return Scaffold(
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+            body: Center(
+              child: CircularProgressIndicator(color: accent),
+            ),
+          );
+        },
+      );
+    }
+
+    final enabledTabs = _enabledTabIndices(settings);
+    // If the current tab got disabled, jump to the first enabled one.
+    if (!enabledTabs.contains(_currentIndex)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !enabledTabs.contains(_currentIndex)) {
+          setState(() => _currentIndex = enabledTabs.first);
+        }
+      });
+    }
+
+    // Wide windows get a side rail and no bottom bar. A bottom bar stretched
+    // across a 12" tablet puts "History" and "Updates" a hand's width apart at
+    // opposite ends of the display, and wastes the width the content wants.
+    final useRail = usesWideLayout(context);
+
+    // The Continue button is reachable from every tab now, not just History:
+    // resuming a manga is the app's primary action, so it should not require
+    // switching tabs first. Desktop keeps it in the rail; phone shows it
+    // beside the bar on every tab.
+    final showFab =
+        settings.showFloatingContinueButton && enabledTabs.contains(0);
+    _visitedTabs.add(_currentIndex);
+
+    // Shared by both layouts so the rail and the bar cannot drift into
+    // different tab behaviour.
+    final content = IndexedStack(
+      index: _currentIndex,
+      children: List.generate(
+        _screens.length,
+        (i) => _visitedTabs.contains(i)
+            // A tab that is kept alive but not shown must not keep animating:
+            // the Explore hero's sheen is an endless controller, and without
+            // this it ticked (and repainted the whole page) on every other tab
+            // too. Muting tickers per tab costs nothing and leaves the hidden
+            // tab's state (scroll offsets, controllers) intact.
+            ? TickerMode(
+                enabled: i == _currentIndex,
+                // Layered here so re-tapping the tab can reach this screen's
+                // primary scroll view; every tab has exactly one.
+                child: PrimaryScrollController(
+                  controller: _tabScrollControllers[i],
+                  child: _screens[i],
+                ),
+              )
+            : const SizedBox.shrink(),
+      ),
+    );
+
+    return PopScope(
+      canPop: !settings.exitConfirmation,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        final now = DateTime.now();
+        final recent =
+            _lastBackPress != null &&
+            now.difference(_lastBackPress!) < const Duration(seconds: 2);
+        if (recent) {
+          SystemNavigator.pop();
+          return;
+        }
+        _lastBackPress = now;
+        final l = AppLocalizations.of(context);
+        // Same floating pill toast the rest of the app uses, so the hint never
+        // sits on top of the bottom navigation.
+        showIosToast(
+          context,
+          message: l.pressBackToExit,
+          duration: const Duration(seconds: 2),
+        );
+      },
+      child: Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        extendBody: !useRail,
+        body: NotificationListener<ScrollNotification>(
+          onNotification: _onScrollNotification,
+          child: useRail
+              ? Row(
+                  children: [
+                    // The Continue button sits in the rail itself now, the
+                    // reference's own wide-window shape: its railFab is an
+                    // ExtendedFloatingActionButton parked above every rail
+                    // item (navigation_rail_fab.xml), so returning to the
+                    // last chapter never needs a reach to the screen's far
+                    // corner. The old floating corner pill kept that path on
+                    // wide windows, but nothing about it matched the
+                    // reference's rail layout.
+                    _buildNavRail(
+                      context,
+                      updatesCount,
+                      accent,
+                      enabledTabs,
+                      showContinue: showFab,
+                    ),
+                    Expanded(child: content),
+                  ],
+                )
+              : Stack(
+            children: [
+              // Main body content — placed first so lists/grids extend
+              // edge-to-edge and scroll underneath the floating bar.
+              Positioned.fill(child: content),
+              // Bottom navigation overlay (floating or solid) + the conditional
+              // Continue FAB (opt-in, shown on every tab). The FAB sits beside the
+              // floating pill in one bottom-centered row; with the solid bar it
+              // stays docked above it. Everything hides together on scroll-down
+              // unless pinNavUiOnScroll is on.
+              AnimatedSlide(
+                offset: Offset(0, (_navHiddenOnScroll || selectionActive) ? 1.5 : 0),
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                child: Stack(
+                  alignment: Alignment.bottomCenter,
+                  children: [
+                    if (settings.useFloatingNavBar)
+                      _buildFloatingNav(
+                        context,
+                        updatesCount,
+                        accent,
+                        settings,
+                        enabledTabs,
+                        showFab: showFab,
+                      )
+                    else ...[
+                      _buildSolidNav(
+                        context, updatesCount, accent, settings, enabledTabs),
+                      Positioned(
+                        // The reference anchors its continue FAB to the nav's
+                        // top end with a 16dp horizontal margin.
+                        right: 16 + (MediaQuery.textScalerOf(context).scale(16)),
+                        bottom: bottomBarTopEdge(context) + 12,
+                        child: showFab
+                            ? KeyedSubtree(
+                                key: const ValueKey('continue-fab'),
+                                child: _buildContinueFab(accent),
+                              )
+                            : const SizedBox(
+                                key: ValueKey('fab-hidden'),
+                                width: 60,
+                                height: 60,
+                              ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Hides the nav bar + FAB on downward scroll unless pinNavUiOnScroll is on.
+  bool _onScrollNotification(ScrollNotification notification) {
+    final pinned = ref.read(appearanceSettingsProvider).pinNavUiOnScroll;
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta ?? 0;
+      final pixels = notification.metrics.pixels;
+      final scrollingDown = delta > 0;
+      final enoughScrolled = pixels > 40;
+
+      if (!pinned) {
+        if (scrollingDown && enoughScrolled && !_navHiddenOnScroll) {
+          setState(() => _navHiddenOnScroll = true);
+        } else if (!scrollingDown && _navHiddenOnScroll) {
+          setState(() => _navHiddenOnScroll = false);
+        }
+      }
+    }
+    return false;
+  }
+
+  Widget _buildFloatingNav(
+    BuildContext context,
+    int updatesCount,
+    Color accent,
+    AppearanceSettings settings,
+    List<int> enabledTabs, {
+    required bool showFab,
+  }) {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: SafeArea(
+        top: false,
+        bottom: true,
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: kBottomBarSideMargin,
+            right: kBottomBarSideMargin,
+            bottom: kBottomBarBottomMargin,
+          ),
+          // The pill and the Continue FAB are a single group and centre
+          // together. Left-aligning the pill whenever a FAB was present pushed
+          // the nav and the button to opposite ends of anything wider than a
+          // phone -- a hand's width of dead space between the two, on exactly
+          // the devices that had room to spare.
+          child: Center(
+            heightFactor: 1,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: kFloatingPillMaxWidth,
+                    ),
+                    child: _buildFloatingPill(
+                      context,
+                      updatesCount,
+                      accent,
+                      settings,
+                      enabledTabs,
+                    ),
+                  ),
+                ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  curve: Curves.easeOutCubic,
+                  alignment: Alignment.centerRight,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(scale: animation, child: child),
+                    ),
+                    child: showFab
+                        ? KeyedSubtree(
+                            key: const ValueKey('continue-fab'),
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                left: 8,
+                              ),
+                              child: _buildContinueFab(accent),
+                            ),
+                          )
+                        : const SizedBox(
+                            key: ValueKey('fab-hidden'),
+                            width: 0,
+                            height: kBottomBarHeight,
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingPill(
+    BuildContext context,
+    int updatesCount,
+    Color accent,
+    AppearanceSettings settings,
+    List<int> enabledTabs,
+  ) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final frosted = settings.useFrostedGlass;
+    final pillColor = frosted
+        ? dark
+              ? amoled(context, 0x661C1C1E)
+              : Colors.white.withValues(alpha: 0.62)
+        : dark
+            ? amoled(context, 0xF21C1C1E)
+            : Colors.white;
+    final pillBorder = dark
+        ? const Color(0x332C2C30)
+        : Colors.black.withValues(alpha: 0.08);
+    // Kotatsu-Redo's floating nav is a fully-rounded pill (radius 50) with a
+    // 8dp drop shadow, which is what makes it read as a floating "island"
+    // instead of a docked bar. Mirror that here: pill-shaped corners and an
+    // elevation shadow so the bar lifts off the content behind it.
+    final pill = Container(
+      height: kBottomBarHeight,
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: pillColor,
+        borderRadius: BorderRadius.circular(50),
+        border: Border.all(color: pillBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: _buildNavRow(updatesCount, accent, settings, enabledTabs),
+    );
+    if (frosted) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(50),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+          child: pill,
+        ),
+      );
+    }
+    return pill;
+  }
+
+  Widget _buildSolidNav(
+    BuildContext context,
+    int updatesCount,
+    Color accent,
+    AppearanceSettings settings,
+    List<int> enabledTabs,
+  ) {
+    // The reference's solid nav is Material's own BottomNavigationView kept
+    // alive when the floating setting is off (FloatingBottomNavigationView
+    // setUseLegacyNavigation). Its Expressive style (material 1.14.0) is what
+    // this reproduces: a full-width, evenly divided bar, 64dp tall, painted
+    // colorSurfaceContainer and lifted by a level-2 (3dp) elevation shadow.
+    // The gesture inset is part of that surface too -- the legacy view pads
+    // itself by the system bar height rather than letting the content show
+    // through -- so the bar keeps its colour all the way to the screen edge.
+    final cs = Theme.of(context).colorScheme;
+    final inset = MediaQuery.paddingOf(context).bottom;
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Material(
+        color: cs.surfaceContainer,
+        elevation: 3,
+        // Flutter's Material tints elevated surfaces by default; Material 3
+        // (and the reference) paint the container tone flat instead.
+        surfaceTintColor: Colors.transparent,
+        child: Container(
+          width: double.infinity,
+          height: kBottomBarHeight + inset,
+          padding: EdgeInsets.only(bottom: inset),
+          child: Row(
+            // Material's menu view divides the width evenly between items, so
+            // the bar reads as a docked bar; the floating pill's tight centre
+            // cluster belongs to the pill only.
+            children: [
+              for (var i = 0; i < enabledTabs.length; i++)
+                Expanded(
+                  child: _buildSolidNavItem(
+                    enabledTabs[i],
+                    updatesCount,
+                    accent,
+                    settings,
+                    showLabels: settings.showNavLabels,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // One evenly divided solid-bar item: the icon in an indicator pill on top
+  // and -- when labels are on -- the tab's name beneath it. Unlike the
+  // floating pill's item, the label never rides beside the icon and never
+  // only on the active item: Material's stacked layout shows every label, and
+  // the pill keeps a fixed size wrapped around the icon regardless of text.
+  //
+  // The colours are the Expressive bottom-nav tokens rather than the app
+  // accent: a selected item wears onSecondaryContainer on a secondaryContainer
+  // pill with a secondary label, and an unselected one is onSurfaceVariant
+  // throughout. That is why the selected icon reads light-on-slate instead of
+  // accent-tinted.
+  Widget _buildSolidNavItem(
+    int index,
+    int updatesCount,
+    Color accent,
+    AppearanceSettings settings, {
+    required bool showLabels,
+  }) {
+    final active = _currentIndex == index;
+    final cs = Theme.of(context).colorScheme;
+    final color = active ? cs.onSecondaryContainer : cs.onSurfaceVariant;
+    final labelColor = active ? cs.secondary : cs.onSurfaceVariant;
+    final (line, fill) = _navIcons(index);
+
+    return Semantics(
+      container: true,
+      selected: active,
+      button: true,
+      label: _navLabel(context, index),
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: () => _onTabTapped(index),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              // The active indicator: Material 3 Expressive's vertical spec is
+              // 56x32 (not the 64x32 horizontal one) in colorSecondaryContainer,
+              // fully rounded, with 4dp of margin either side. A fixed size
+              // means the pill never grows with the label and switching tabs
+              // just moves it.
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 240),
+                curve: Curves.easeOutCubic,
+                width: 56,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: active ? cs.secondaryContainer : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                alignment: Alignment.center,
+                child: index == 4
+                    ? _buildUpdatesIcon(
+                        updatesCount,
+                        active ? fill : line,
+                        color,
+                        accent,
+                        size: 24,
+                      )
+                    : Icon(active ? fill : line, size: 24, color: color),
+              ),
+              if (showLabels) ...[
+                const SizedBox(height: 4),
+                Text(
+                  _navLabel(context, index),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    // Material's LabelMedium: 12sp at 0.5 letter spacing with
+                    // a 16dp line box, medium weight in both states (the
+                    // Expressive style disables the active-state bolding).
+                    fontSize: 12,
+                    height: 16 / 12,
+                    letterSpacing: 0.5,
+                    fontWeight: FontWeight.w500,
+                    color: labelColor,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNavRow(
+    int updatesCount,
+    Color accent,
+    AppearanceSettings settings,
+    List<int> enabledTabs,
+  ) {
+    // Pack the items tightly toward the centre with a 4dp rhythm, matching
+    // Kotatsu-Redo's floating bar (spacedBy(4.dp)) so the pill wraps its
+    // content instead of stretching edge-to-edge and reading like a docked bar.
+    final children = <Widget>[];
+    for (var i = 0; i < enabledTabs.length; i++) {
+      if (i > 0) children.add(const SizedBox(width: 4));
+      children.add(_buildNavItem(enabledTabs[i], updatesCount, accent, settings));
+    }
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
+      children: children,
+    );
+  }
+
+  // Updates icon with its unread-count badge.
+  Widget _buildUpdatesIcon(
+    int badgeCount,
+    IconData icon,
+    Color color,
+    Color accent, {
+    double size = 22,
+  }) {
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.center,
+      children: [
+        Icon(icon, size: size, color: color),
+        if (badgeCount > 0)
+          Positioned(
+            top: -4,
+            right: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+              decoration: BoxDecoration(
+                color: accent,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                '$badgeCount',
+                style: TextStyle(
+                  color:
+                      ThemeData.estimateBrightnessForColor(accent) ==
+                          Brightness.dark
+                      ? Colors.white
+                      : Colors.black,
+                  fontSize: 9,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _navLabel(BuildContext context, int index) {
+    final l = AppLocalizations.of(context);
+    return switch (index) {
+      0 => l.history,
+      1 => l.favorites,
+      2 => l.suggestions,
+      3 => l.explore,
+      _ => l.updates,
+    };
+  }
+
+  /// Side navigation for wide windows, replacing the bottom bar.
+  ///
+  /// Not a stock [NavigationRail]: the app's navigation is its own accent-tinted
+  /// pill, so a Material rail beside it would read as two different apps. This
+  /// is the same pill rotated onto the vertical axis.
+  ///
+  /// Icons only. A rail's labels are narrow by default, and the tab name already
+  /// appears once at the top of the tab's own pane; printing it again under the
+  /// icon repeated it on the one screen that already has room for it. The
+  /// tooltip carries the name instead, so the rail still says what it is on
+  /// hover. This also leaves the show-labels setting with nothing to hide here,
+  /// since it governs the bottom bar only.
+  Widget _buildNavRail(
+    BuildContext context,
+    int updatesCount,
+    Color accent,
+    List<int> enabledTabs, {
+    bool showContinue = false,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: kNavRailWidth,
+      color: dark ? amoled(context, 0xFF1C1C1E) : Colors.white,
+      child: SafeArea(
+        right: false,
+        child: Column(
+          children: [
+            const SizedBox(height: 8),
+            // The reference's rail header: its railFab sits above every
+            // menu item so resuming is one tap from wherever the reader
+            // happens to be. The History item keeps its place below.
+            if (showContinue)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                child: _buildRailContinueTile(accent),
+              ),
+            for (final index in enabledTabs)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8,
+                  vertical: 3,
+                ),
+                child: _buildNavRailItem(index, updatesCount, accent),
+              ),
+            const Spacer(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The rail-mode Continue button. The reference renders this slot as an
+  /// ExtendedFloatingActionButton; here it takes the rail's square-item
+  /// geometry instead so the rail reads as one column of identical tiles,
+  /// with the continuing spinner standing in for the glyph.
+  Widget _buildRailContinueTile(Color accent) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final frosted = ref.watch(appearanceSettingsProvider).useFrostedGlass;
+    // The floating pill's gel recipe, squared: the action tile keeps the
+    // accent tint the rest of the rail's decorations use.
+    final glass = dark
+        ? amoled(context, 0x661C1C1E)
+        : Colors.white.withValues(alpha: 0.62);
+    final tint = accent.withValues(alpha: dark ? 0.45 : 0.32);
+    final gel = Color.alphaBlend(tint, glass);
+
+    final color = _isContinuing ? amoled(context, 0xFF2A2A2E) : gel;
+    return Tooltip(
+      message: AppLocalizations.of(context).continueAction,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: _isContinuing ? null : _continueReading,
+          borderRadius: BorderRadius.circular(16),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              width: double.infinity,
+              height: 56,
+              decoration: BoxDecoration(
+                color: color,
+                border: Border.all(
+                  color: dark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : Colors.black.withValues(alpha: 0.06),
+                  width: 1,
+                ),
+              ),
+              child: frosted
+                  ? BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                      child: Center(child: _railContinueGlyph(accent)),
+                    )
+                  : Center(
+                      child: _railContinueGlyph(accent),
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _railContinueGlyph(Color accent) {
+    return _isContinuing
+        ? const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              color: Colors.white,
+              strokeWidth: 2.5,
+            ),
+          )
+        : Icon(
+            // Same ic_read glyph the floating pill carries.
+            Icons.local_library,
+            color: accent,
+            size: 26,
+          );
+  }
+
+  Widget _buildNavRailItem(
+    int index,
+    int updatesCount,
+    Color accent,
+  ) {
+    final active = _currentIndex == index;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final color = active
+        ? accent
+        : dark
+        ? const Color(0xFF8E8E93)
+        : const Color(0xFF49454F);
+    final (line, fill) = _navIcons(index);
+
+    // The name lives in the content pane's header now, so the rail is
+    // icon-only. The tooltip carries it instead: an icon with no text and no
+    // tooltip is a guess, and this rail is the only way to change tab.
+    return Tooltip(
+      message: _navLabel(context, index),
+      child: Material(
+        color: active
+            ? accent.withValues(alpha: dark ? 0.26 : 0.16)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          onTap: () => _onTabTapped(index),
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            // Square-ish rather than the old label-height row, so the icons
+            // sit on a regular rhythm down the rail with nothing under them.
+            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 4),
+            child: Center(
+              child: index == 4
+                  ? _buildUpdatesIcon(
+                      updatesCount,
+                      active ? fill : line,
+                      color,
+                      accent,
+                    )
+                  : Icon(
+                      active ? fill : line,
+                      size: 24,
+                      color: color,
+                    ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Line/fill glyph pair per tab, shared by the bottom bar and the side rail
+  /// so the two navigation shapes can never drift into showing different icons
+  /// for the same tab. History and Updates repeat one glyph because MDI has no
+  /// filled cut of them, which is what Kotatsu's own history and feed selectors
+  /// do as well.
+  (IconData, IconData) _navIcons(int index) => switch (index) {
+        0 => (MdiIcons.history, MdiIcons.history),
+        1 => (MdiIcons.heartOutline, MdiIcons.heart),
+        2 => (MdiIcons.lightbulbOutline, MdiIcons.lightbulb),
+        3 => (MdiIcons.compassOutline, MdiIcons.compass),
+        _ => (MdiIcons.rss, MdiIcons.rss),
+      };
+
+  // Icon + label slot (friend's iOS-style bar, Material Design Icons). Every
+  // tab shows icon + small label; the active tab swaps to the fill glyph, tints
+  // with the accent and scales up 5%. Each item is Expanded so the 5 tabs share
+  // the available width evenly; the label is wrapped in FittedBox so it scales
+  // down instead of overflowing on narrow screens.
+  Widget _buildNavItem(
+    int index,
+    int updatesCount,
+    Color accent,
+    AppearanceSettings settings,
+  ) {
+    final active = _currentIndex == index;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final color = active
+        ? accent
+        : dark
+        ? const Color(0xFF8E8E93)
+        : const Color(0xFF49454F);
+    final showLabels = settings.showNavLabels;
+
+    final (line, fill) = _navIcons(index);
+
+    return Semantics(
+      selected: active,
+      button: true,
+      label: _navLabel(context, index),
+      child: SizedBox(
+      height: kBottomBarHeight - 16,
+      child: InkWell(
+        onTap: () => _onTabTapped(index),
+        borderRadius: BorderRadius.circular(20),
+        child: Center(
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 340),
+            curve: Curves.easeOutBack,
+            decoration: BoxDecoration(
+              color: active
+                  ? accent.withValues(
+                      alpha: Theme.of(context).brightness == Brightness.dark
+                          ? 0.26
+                          : 0.16,
+                    )
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            padding: EdgeInsets.symmetric(
+              horizontal: active ? 14 : 12,
+              vertical: active ? 8 : 4,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 260),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  transitionBuilder: (child, animation) => FadeTransition(
+                    opacity: animation,
+                    child: ScaleTransition(
+                      scale: Tween<double>(
+                        begin: 0.92,
+                        end: 1,
+                      ).animate(animation),
+                      child: child,
+                    ),
+                  ),
+                  child: index == 4
+                      ? KeyedSubtree(
+                          key: ValueKey<bool>(active),
+                          child: _buildUpdatesIcon(
+                            updatesCount,
+                            active ? fill : line,
+                            color,
+                            accent,
+                          ),
+                        )
+                      : Icon(
+                          active ? fill : line,
+                          key: ValueKey<bool>(active),
+                          size: 22,
+                          color: color,
+                        ),
+                ),
+                if (showLabels && active)
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 240),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.12, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    ),
+                    child: Row(
+                      key: const ValueKey<int>(0),
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 5),
+                        Flexible(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                              _navLabel(context, index),
+                              softWrap: false,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: color,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      ),
+    );
+  }
+
+  Widget _buildContinueFab(Color accent) {
+    // When the bar is docked (floating nav off) the button is the only
+    // affordance, so name it; the pill beside the floating bar leaves it
+    // as an icon.
+    final extended = !ref.read(appearanceSettingsProvider).useFloatingNavBar;
+    if (extended) return _buildExtendedContinueFab();
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final frosted = ref.watch(appearanceSettingsProvider).useFrostedGlass;
+    // Pill's frosted recipe, gelled with the app accent: reads like the pill's
+    // active-nav capsule while staying visible over busy covers.
+    final glass = dark
+        ? amoled(context, 0x661C1C1E)
+        : Colors.white.withValues(alpha: 0.62);
+    final tint = accent.withValues(alpha: dark ? 0.45 : 0.32);
+    final gel = Color.alphaBlend(tint, glass);
+    final gelSolid =
+        Color.alphaBlend(tint, dark ? amoled(context, 0xFF1C1C1E) : Colors.white);
+
+    final innerChild = _isContinuing
+        ? const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(
+              color: Colors.white,
+              strokeWidth: 2.5,
+            ),
+          )
+        : Icon(
+            // Kotatsu-Redo's ic_read -- the Material local_library glyph,
+            // a reader's head over the open book, which is what the
+            // reference's Continue FAB and rail button both carry.
+            Icons.local_library,
+            color: accent,
+            size: 26,
+          );
+
+    final inner = Container(
+      width: extended ? null : 60,
+      height: extended ? 44 : 60,
+      padding: extended
+          ? const EdgeInsets.symmetric(horizontal: 14)
+          : EdgeInsets.zero,
+      color: _isContinuing ? amoled(context, 0xFF2A2A2E) : gel,
+      child: Center(
+        child: extended
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  innerChild,
+                  const SizedBox(width: 8),
+                  Text(
+                    AppLocalizations.of(context).continueAction,
+                    style: TextStyle(
+                      color: accent,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              )
+            : innerChild,
+      ),
+    );
+
+    return GestureDetector(
+      onTap: _isContinuing ? null : _continueReading,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOutCubic,
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(extended ? 24 : 30),
+          color: _isContinuing
+              ? amoled(context, 0xFF2A2A2E)
+              : Colors.transparent,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.35),
+              blurRadius: 16,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(extended ? 24 : 30),
+          child: frosted
+              ? BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                  child: inner,
+                )
+              : Container(
+                  width: extended ? null : 60,
+                  height: extended ? 44 : 60,
+                  color: _isContinuing
+                      ? amoled(context, 0xFF2A2A2E)
+                      : gelSolid,
+                  child: inner.child,
+                ),
+        ),
+      ),
+    );
+  }
+
+  // The docked-bar Continue button: Material 3's ExtendedFloatingActionButton
+  // in the Primary colour mapping, which is what the reference uses for its
+  // own continue FAB (Widget.Kotatsu.ExtendedFab.Continue parent
+  // Widget.Material3.ExtendedFloatingActionButton.Primary). That means
+  // colorPrimaryContainer / colorOnPrimaryContainer -- a solid tone, not the
+  // accent gel the floating pill's round button wears -- at the small size:
+  // 56dp tall, 16dp corner, 24dp icon, LabelLarge label, 16dp side padding,
+  // 8dp icon-to-label gap and level-3 (6dp) elevation.
+  Widget _buildExtendedContinueFab() {
+    final cs = Theme.of(context).colorScheme;
+    final contentColor = cs.onPrimaryContainer;
+    return Material(
+      elevation: 6,
+      borderRadius: BorderRadius.circular(16),
+      color: cs.primaryContainer,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: _isContinuing ? null : _continueReading,
+        child: SizedBox(
+          height: 56,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_isContinuing)
+                  SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(
+                      color: contentColor,
+                      strokeWidth: 2.5,
+                    ),
+                  )
+                else
+                  Icon(
+                    // Kotatsu-Redo's ic_read -- the Material local_library
+                    // glyph, a reader's head over the open book.
+                    Icons.local_library,
+                    color: contentColor,
+                    size: 24,
+                  ),
+                const SizedBox(width: 8),
+                Text(
+                  AppLocalizations.of(context).continueAction,
+                  style: TextStyle(
+                    // Material's LabelLarge, at the weight the reference's
+                    // shadowed nav label actually renders (Google Sans Bold).
+                    fontSize: 14,
+                    height: 20 / 14,
+                    letterSpacing: 0.1,
+                    fontWeight: FontWeight.w600,
+                    color: contentColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _refreshUpdatesBadge() async {
+    try {
+      final updates = await ref.read(updatesProvider.future);
+      final total = updates.fold<int>(
+        0,
+        (sum, u) => sum + (u.hasUnseenUpdate ? u.newCount : 0),
+      );
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(kUpdatesBadgePrefKey, total);
+      if (mounted) ref.invalidate(updatesBadgeProvider);
+    } catch (_) {
+      // First-boot or network hiccup — keep persisted value.
+    }
+  }
+
+  Future<void> _continueReading() async {
+    if (_isContinuing) return;
+    setState(() => _isContinuing = true);
+
+    try {
+      final rows = await DatabaseHelper.instance.getHistory();
+      if (rows.isEmpty) {
+        if (mounted) {
+          final l = AppLocalizations.of(context);
+          showIosToast(
+            context,
+            message: l.noReadingHistoryYet,
+            duration: const Duration(seconds: 2),
+          );
+        }
+        return;
+      }
+
+      final last = rows.first;
+      final mangaId = last['mangaId'] as String;
+      final sourceId = last['sourceId'] as String?;
+      final title = last['title'] as String;
+      final coverUrl = last['coverUrl'] as String?;
+      final lastReadChapter =
+          (last['lastReadChapter'] as num?)?.toDouble() ?? 0;
+      final lastReadPage = (last['lastReadPage'] as int?) ?? 0;
+      final totalChaptersDb = (last['totalChapters'] as int?) ?? 0;
+
+      final source = sourceId != null
+          ? getSourceBySourceId(sourceId) ?? ref.read(currentSourceProvider)
+          : ref.read(currentSourceProvider);
+      if (source == null) {
+        if (mounted) {
+          final l = AppLocalizations.of(context);
+          showIosToast(
+            context,
+            message: l.noSourceAvailable,
+            duration: const Duration(seconds: 2),
+          );
+        }
+        return;
+      }
+
+      final chapters = await SourceCache.chapters(
+        sourceId: source.id,
+        mangaId: mangaId,
+        fetch: () => source.getChapters(mangaId),
+      );
+      if (chapters.isEmpty) {
+        if (mounted) {
+          final l = AppLocalizations.of(context);
+          showIosToast(
+            context,
+            message: l.noChaptersAvailable,
+            duration: const Duration(seconds: 2),
+          );
+        }
+        return;
+      }
+
+      // Chapters are used oldest-first so reading advances forward through
+      // the series; resume at the first unread chapter (same as the tray).
+      final sorted = [...chapters]
+        ..sort((a, b) {
+          double numOf(Chapter c) =>
+              double.tryParse(
+                RegExp(
+                      r'(\d+(\.\d+)?)',
+                    ).firstMatch(c.chapterNumber)?.group(1) ??
+                    '',
+              ) ??
+              0;
+          return (numOf(a) - numOf(b)).toInt();
+        });
+      final lastReadInt = lastReadChapter.round();
+      int chapterIndex = (lastReadInt - 1).clamp(0, sorted.length - 1);
+      final total = totalChaptersDb > 0 ? totalChaptersDb : sorted.length;
+
+      if (!mounted) return;
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ReaderScreen(
+            allChapters: sorted,
+            initialChapterIndex: chapterIndex,
+            initialPageIndex: lastReadPage,
+            mangaId: mangaId,
+            sourceId: sourceId,
+            mangaTitle: title,
+            mangaCoverUrl: coverUrl,
+            totalChapters: total,
+          ),
+        ),
+      );
+
+      // After closing the reader, return to the History tab.
+      if (mounted) setState(() => _currentIndex = 0);
+    } catch (e) {
+      debugPrint('Continue reading error: $e');
+      if (mounted) {
+        final l = AppLocalizations.of(context);
+        showIosToast(
+          context,
+          message: l.failedToContinueReading(e),
+          duration: const Duration(seconds: 2),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isContinuing = false);
+    }
+  }
+}

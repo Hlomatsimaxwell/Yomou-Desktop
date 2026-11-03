@@ -1,0 +1,59 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+migrated_paths.txt
+
+# IntelliJ / Android Studio / editors
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Flutter / Dart / Pub
+**/doc/api/
+.dart_tool/
+.flutter-buttons
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+
+# iOS / macOS generated
+ios/Flutter/ephemeral/
+ios/Flutter/Generated.xcconfig
+ios/Runner/GeneratedPluginRegistrant.*
+
+# Android generated / local
+android/.gradle/
+android/captures/
+android/.cxx/
+android/local.properties
+android/key.properties*
+android/*.jks
+android/*.keystore
+
+# Secret / credential backup artifacts
+**/key.properties*
+**/*.jks
+**/*.keystore
+**/*.p12
+**/*.pem
+
+# App build artifacts
+*.aab
+*.apk
+*.ipa
+
+# OS
+Thumbs.db

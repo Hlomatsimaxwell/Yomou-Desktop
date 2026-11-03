@@ -1,0 +1,83 @@
+name: yomou
+description: "Yomou - a Kotatsu-style manga reader."
+publish_to: 'none'
+
+version: 1.1.9+323
+license: Apache-2.0
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  flutter_riverpod: ^2.6.1
+  package_info_plus: ^8.3.1
+  dio: ^5.11.0
+  html: ^0.15.6
+  http: ^1.6.0
+  cached_network_image: ^3.4.1
+  flutter_cache_manager: ^3.4.1
+  image: ^4.3.0
+  path_provider: ^2.1.6
+  sqflite: ^2.3.0
+  sqflite_common_ffi: ^2.3.0
+  path: ^1.9.1
+  flutter_inappwebview: ^6.0.0
+  shared_preferences: ^2.2.3
+  intl: ^0.20.2
+  # Renders the settings row icons ported from Kotatsu-Redo, which ship as
+  # their original SVG geometry rather than a font.
+  flutter_svg: ^2.0.17
+  # Material Design Icons, the family most of Kotatsu-Redo's own drawables come
+  # from. Declares the MdiIcons constants that replaced the Remix set.
+  flutter_material_design_icons: ^3.1.0+7447
+  url_launcher: ^6.3.1
+  image_picker: ^1.1.2
+  file_picker: ^10.3.0
+  flutter_local_notifications: ^22.3.1
+  workmanager: ^0.10.10
+  battery_plus: ^7.1.1
+  # Google Sign-In + Drive API for cloud backup (Google Drive).
+  google_sign_in: ^6.2.2
+  googleapis: ^13.2.0
+  # AES encryption for the Yomou encrypted backup format.
+  encrypt: ^5.0.3
+  # SHA-256 / HMAC for PBKDF2 key derivation in encrypted backups.
+  crypto: ^3.0.7
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter:
+  uses-material-design: true
+  generate: true
+  assets:
+    - assets/source_icons/
+    # Leading icons for settings rows, ported from Kotatsu-Redo. See
+    # assets/kotatsu_icons/PROVENANCE.md for where each file came from and the
+    # licence it carries.
+    - assets/kotatsu_icons/
+    - assets/app_icons/
+    # Material Symbols glyphs the bundled MaterialIcons font lacks: the
+    # framework's actionModeSelectAllDrawable (chapter select-all) and the
+    # tray-and-arrow download Kotatsu-Redo ports as ic_download.xml. See each
+    # file's head comment for provenance.
+    - assets/material_symbols/
+    # Bundled so the "What's new" sheet and the About screen can show the
+    # release notes without a network round-trip. The file is the single source
+    # of truth: a release shows exactly what is written under its heading.
+    - CHANGELOG.md
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "logo_dark.png"
+  adaptive_icon_background: "#000000"
+  adaptive_icon_foreground: "logo_dark.png"

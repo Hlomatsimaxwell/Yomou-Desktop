@@ -1,0 +1,853 @@
+import 'dart:convert';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yomou/core/theme/amoled.dart';
+import 'package:yomou/core/widgets/ios/ios_menu.dart';
+import 'package:yomou/core/widgets/ios/ios_sheet.dart';
+import 'package:yomou/core/widgets/ios/ios_toast.dart';
+import 'package:yomou/l10n/generated/app_localizations.dart';
+import 'package:yomou/data/models/manga_filter.dart';
+
+/// Presents the filter as a fullscreen sheet: slides up to cover the whole
+/// screen (no rounded corners breaking the look when the list scrolls), with
+/// the normal iOS-style push transition.
+Future<MangaFilter?> showMangaFilterSheet(
+  BuildContext context, {
+  required MangaFilter initial,
+  required List<String> tags,
+  required String presetsKey,
+  required void Function(MangaFilter filter) onSave,
+}) {
+  return Navigator.of(context).push(
+    PageRouteBuilder<MangaFilter>(
+      fullscreenDialog: true,
+      transitionDuration: const Duration(milliseconds: 320),
+      reverseTransitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (context, animation, _) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.06),
+              end: Offset.zero,
+            ).animate(curved),
+            child: Scaffold(
+              backgroundColor: iosSheetBackground(context),
+              body: SafeArea(
+                child: MangaFilterSheet(
+                  initial: initial,
+                  tags: tags,
+                  presetsKey: presetsKey,
+                  onSave: onSave,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+/// The source-catalog filter sheet. Shows every section from the spec — sort,
+/// language, genres, excluded genres, publication state and year range — and
+/// hands the bundled [MangaFilter] back to the source grid on "Done".
+///
+/// [onSave] persists the active filter for this source (called by Save + Done).
+/// Named presets are stored under [presetsKey] so saved filters can be
+/// recalled, renamed and deleted.
+///
+/// Set [inline] to render the same controls as a permanent pane instead of a
+/// route. A fullscreen sheet asks you to commit or throw away your changes,
+/// which only makes sense when there is a way out; a pane that is simply
+/// always there has neither, so it applies through [onApplied] instead of
+/// popping, and its close control hands over to [onClose] rather than popping
+/// a route.
+class MangaFilterSheet extends ConsumerStatefulWidget {
+  final MangaFilter initial;
+  final List<String> tags;
+  final String presetsKey;
+  final void Function(MangaFilter filter) onSave;
+
+  /// Rendered as a pane rather than pushed as a route. See the class docs.
+  final bool inline;
+
+  /// Called with the new filter when the user applies in [inline] mode, where
+  /// there is no route to return a value through.
+  final ValueChanged<MangaFilter>? onApplied;
+
+  /// Called by the close control in [inline] mode. The pane's owner decides
+  /// what closing means; with nothing to close the control hides itself.
+  final VoidCallback? onClose;
+
+  const MangaFilterSheet({
+    super.key,
+    required this.initial,
+    required this.tags,
+    required this.presetsKey,
+    required this.onSave,
+    this.inline = false,
+    this.onApplied,
+    this.onClose,
+  });
+
+  @override
+  ConsumerState<MangaFilterSheet> createState() => _MangaFilterSheetState();
+}
+
+class _MangaFilterSheetState extends ConsumerState<MangaFilterSheet> {
+  static const _minYear = 1900;
+  static const _maxYear = 2027;
+
+  late String _sort;
+  String? _language;
+  late Set<String> _genres;
+  late Set<String> _excludeGenres;
+  late Set<String> _status;
+  late int _yearFrom;
+  late int _yearTo;
+  List<SavedFilter> _presets = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _sort = widget.initial.sort;
+    _language = widget.initial.language;
+    _genres = widget.initial.genres.toSet();
+    _excludeGenres = widget.initial.excludeGenres.toSet();
+    _status = widget.initial.status.toSet();
+    _yearFrom = widget.initial.yearFrom ?? _minYear;
+    _yearTo = widget.initial.yearTo ?? _maxYear;
+    _loadPresets();
+  }
+
+  Future<void> _loadPresets() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(widget.presetsKey);
+      if (raw == null) return;
+      final decoded = (jsonDecode(raw) as List).cast<Map<String, dynamic>>();
+      if (!mounted) return;
+      setState(() {
+        _presets = decoded.map(SavedFilter.fromJson).toList();
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _storePresets() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      widget.presetsKey,
+      jsonEncode(_presets.map((p) => p.toJson()).toList()),
+    );
+  }
+
+  MangaFilter get _current => MangaFilter(
+        sort: _sort,
+        language: _language,
+        genres: _genres.toList(),
+        excludeGenres: _excludeGenres.toList(),
+        status: _status.toList(),
+        yearFrom: _yearFrom > _minYear || _yearTo < _maxYear
+            ? _yearFrom
+            : null,
+        yearTo: _yearFrom > _minYear || _yearTo < _maxYear ? _yearTo : null,
+      );
+
+  Future<void> _showSavePresetDialog() async {
+    final l = AppLocalizations.of(context);
+    final name = await _promptForName(
+      title: l.filterSavePresetTitle,
+      hint: l.filterSavePresetHint,
+    );
+    if (name == null || name.trim().isEmpty) return;
+    final trimmed = name.trim();
+    setState(() {
+      final existing = _presets.indexWhere((p) => p.name == trimmed);
+      if (existing != -1) {
+        _presets[existing] = SavedFilter(name: trimmed, filter: _current);
+      } else {
+        _presets.add(SavedFilter(name: trimmed, filter: _current));
+      }
+    });
+    await _storePresets();
+    if (!mounted) return;
+    showIosToast(context, message: l.filterSavedPreset(trimmed));
+  }
+
+  Future<String?> _promptForName({
+    required String title,
+    required String hint,
+    String? initial,
+  }) {
+    final controller = TextEditingController(text: initial);
+    final l = AppLocalizations.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor:
+              dark ? amoled(context, 0xFF2C2C2E) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
+          content: TextField(
+            controller: controller,
+            autofocus: true,
+            style: TextStyle(
+              color: dark ? Colors.white : const Color(0xFF1C1B1F),
+            ),
+            cursorColor:
+                dark ? Colors.white : const Color(0xFF1C1B1F),
+            onSubmitted: (_) =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: TextStyle(
+                color: dark ? Colors.white38 : Colors.black38,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: Text(
+                l.filterCancel,
+                style: TextStyle(
+                  color: dark ? Colors.white70 : const Color(0xFF49454F),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, controller.text.trim()),
+              child: Text(
+                l.filterSave,
+                style: TextStyle(
+                  color: dark
+                      ? Colors.white
+                      : Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _applyPreset(SavedFilter preset) {
+    setState(() {
+      _sort = preset.filter.sort;
+      _language = preset.filter.language;
+      _genres = preset.filter.genres.toSet();
+      _excludeGenres = preset.filter.excludeGenres.toSet();
+      _status = preset.filter.status.toSet();
+      _yearFrom = preset.filter.yearFrom ?? _minYear;
+      _yearTo = preset.filter.yearTo ?? _maxYear;
+    });
+    showIosToast(
+      context,
+      message: AppLocalizations.of(context).filterPresetApplied(preset.name),
+    );
+  }
+
+  Future<void> _showPresetActions(SavedFilter preset) async {
+    final l = AppLocalizations.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final action = await showIosMenuPanel<String>(
+      context,
+      children: [
+        IosMenuRow(
+          icon: MdiIcons.pencilOutline,
+          label: l.filterRename,
+          onTap: () => Navigator.pop(context, 'rename'),
+        ),
+        const IosMenuDivider(),
+        IosMenuRow(
+          icon: MdiIcons.deleteOutline,
+          label: l.filterDelete,
+          destructive: true,
+          onTap: () => Navigator.pop(context, 'delete'),
+        ),
+      ],
+    );
+    if (action == null || !mounted) return;
+    if (action == 'rename') {
+      final newName = await _promptForName(
+        title: l.filterRename,
+        hint: l.filterSavePresetHint,
+        initial: preset.name,
+      );
+      if (newName == null || newName.trim().isEmpty) return;
+      setState(() {
+        final index = _presets.indexWhere((p) => p.name == preset.name);
+        if (index != -1) {
+          _presets[index] =
+              SavedFilter(name: newName.trim(), filter: preset.filter);
+        }
+      });
+      await _storePresets();
+    } else if (action == 'delete') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          backgroundColor:
+              dark ? amoled(context, 0xFF2C2C2E) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+          title: Text(
+            l.filterDeleteConfirmTitle,
+            style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+          ),
+          content: Text(
+            l.filterDeleteConfirmBody(preset.name),
+            style: const TextStyle(fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: Text(
+                l.filterCancel,
+                style: TextStyle(
+                  color: dark ? Colors.white70 : const Color(0xFF49454F),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: Text(
+                l.filterDelete,
+                style: const TextStyle(
+                  color: Color(0xFFFF453A),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      setState(() {
+        _presets.removeWhere((p) => p.name == preset.name);
+      });
+      await _storePresets();
+      if (!mounted) return;
+      showIosToast(context, message: l.filterPresetDeleted);
+    }
+  }
+
+  void _done() {
+    widget.onSave(_current);
+    if (widget.inline) {
+      // A pane has no route to pop back to, so the result goes out through
+      // onApplied instead. The grid reloads from that, exactly as it does from
+      // the sheet's return value.
+      widget.onApplied?.call(_current);
+      return;
+    }
+    Navigator.pop(context, _current);
+  }
+
+  void _close() {
+    if (widget.inline) {
+      widget.onClose?.call();
+      return;
+    }
+    Navigator.pop(context);
+  }
+
+  void _reset() {
+    setState(() {
+      _sort = 'updated';
+      _language = null;
+      _genres.clear();
+      _excludeGenres.clear();
+      _status.clear();
+      _yearFrom = _minYear;
+      _yearTo = _maxYear;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context);
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      mainAxisSize: widget.inline ? MainAxisSize.max : MainAxisSize.min,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(8, 4, 12, 8),
+          child: Row(
+            children: [
+              // A pane that is always on screen has nothing to close, so the
+              // control only appears when its owner gave it something to do.
+              if (!widget.inline || widget.onClose != null)
+                IconButton(
+                  icon: const Icon(MdiIcons.close, size: 22),
+                  tooltip: AppLocalizations.of(context).filterClose,
+                  onPressed: _close,
+                ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  l.filterTitle,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(MdiIcons.refresh, size: 20),
+                tooltip: l.filterReset,
+                onPressed: _reset,
+              ),
+            ],
+          ),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _sectionLabel(context, l.filterSort),
+                _buildSortField(dark),
+                if (_presets.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  _sectionLabel(context, l.filterSavedFilters),
+                  _buildPresetChips(dark, scheme),
+                ],
+                const SizedBox(height: 24),
+                _sectionLabel(context, l.filterLanguage),
+                _buildLanguageField(dark),
+                const SizedBox(height: 24),
+                _sectionLabel(context, l.filterGenres),
+                _buildWrap(dark, scheme, _genres, (set) {
+                  setState(() => _genres = set);
+                }),
+                const SizedBox(height: 24),
+                _sectionLabel(context, l.filterExcludeGenres),
+                _buildWrap(dark, scheme, _excludeGenres, (set) {
+                  setState(() => _excludeGenres = set);
+                }),
+                const SizedBox(height: 24),
+                _sectionLabel(context, l.filterMangaState),
+                _buildStatusPills(dark, scheme),
+                const SizedBox(height: 24),
+                _sectionLabel(context, l.filterYear),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    '$_yearFrom - $_yearTo',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: dark ? Colors.white : scheme.onSurface,
+                    ),
+                  ),
+                ),
+                RangeSlider(
+                  values: RangeValues(
+                    _yearFrom.toDouble(),
+                    _yearTo.toDouble(),
+                  ),
+                  min: _minYear.toDouble(),
+                  max: _maxYear.toDouble(),
+                  divisions: _maxYear - _minYear,
+                  // Track colours come from the app-wide slider theme, so the
+                  // year range reads as the same pill as every other slider
+                  // instead of drawing a grey bar of its own.
+                  labels: RangeLabels('$_yearFrom', '$_yearTo'),
+                  onChanged: (values) {
+                    setState(() {
+                      _yearFrom = values.start.round();
+                      _yearTo = values.end.round();
+                    });
+                  },
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: _buildFooterButton(
+                  context,
+                  label: l.filterSave,
+                  filled: false,
+                  onTap: _showSavePresetDialog,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildFooterButton(
+                  context,
+                  label: widget.inline ? l.filterApply : l.filterDone,
+                  filled: true,
+                  onTap: _done,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionLabel(BuildContext context, String text) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: cs.onSurfaceVariant,
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
+        ),
+      ),
+    );
+  }
+
+  /// Sort as a real input field with a dropdown menu: four values in a
+  /// horizontal pill row needed a scroll to reach, and no single pill could
+  /// say which one was active at a glance.
+  Widget _buildSortField(bool dark) {
+    return _dropdownField(
+      dark: dark,
+      value: _sort,
+      items: [
+        for (final (code, label) in kFilterSorts)
+          DropdownMenuItem<String>(
+            value: code,
+            child: Text(label),
+          ),
+      ],
+      onChanged: (value) {
+        if (value == null) return;
+        setState(() => _sort = value);
+      },
+    );
+  }
+
+  /// Language as the same dropdown field; the empty selection ("All") is
+  /// shown as the hint rather than a sentinel item, so the field reads
+  /// "All languages" until a real code is chosen.
+  Widget _buildLanguageField(bool dark) {
+    final l = AppLocalizations.of(context);
+    return _dropdownField(
+      dark: dark,
+      value: _language,
+      hint: l.filterAllLanguages,
+      items: [
+        for (final (code, label) in kFilterLanguages)
+          DropdownMenuItem<String>(
+            value: code,
+            child: Text(label),
+          ),
+      ],
+      onChanged: (value) => setState(() => _language = value),
+    );
+  }
+
+  /// The field shell shared by the sort and language dropdowns: a bordered
+  /// input box wearing the sheet's own dark/light fills, with the menu
+  /// painted in the same colour so it lands flush with the field.
+  Widget _dropdownField({
+    required bool dark,
+    required String? value,
+    required List<DropdownMenuItem<String>> items,
+    required ValueChanged<String?> onChanged,
+    String? hint,
+  }) {
+    final fill = dark ? amoled(context, 0xFF2C2C2E) : Colors.white;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14),
+      decoration: BoxDecoration(
+        color: fill,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: dark ? Colors.white12 : Colors.black12,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          hint: hint == null
+              ? null
+              : Text(
+                  hint,
+                  style: TextStyle(
+                    color: dark ? Colors.white70 : const Color(0xFF49454F),
+                  ),
+                ),
+          items: items,
+          onChanged: onChanged,
+          isExpanded: true,
+          dropdownColor: fill,
+          icon: Icon(
+            MdiIcons.chevronDown,
+            size: 18,
+            color: dark ? Colors.white70 : const Color(0xFF49454F),
+          ),
+          style: TextStyle(
+            color: dark ? Colors.white : const Color(0xFF1C1B1F),
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatusPills(bool dark, ColorScheme scheme) {
+    final labels = {
+      'finished': AppLocalizations.of(context).filterStateFinished,
+      'dropped': AppLocalizations.of(context).filterStateDropped,
+      'upcoming': AppLocalizations.of(context).filterStateUpcoming,
+    };
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final status in kFilterStatuses)
+          _pill(
+            labels[status]!,
+            selected: _status.contains(status),
+            dark: dark,
+            scheme: scheme,
+            onTap: () => setState(() {
+              if (!_status.add(status)) _status.remove(status);
+            }),
+          ),
+      ],
+    );
+  }
+
+  Widget _buildWrap(
+    bool dark,
+    ColorScheme scheme,
+    Set<String> selected,
+    ValueChanged<Set<String>> onChanged,
+  ) {
+    if (widget.tags.isEmpty) {
+      return Text(
+        AppLocalizations.of(context).filterNoTags,
+        style: TextStyle(
+          fontSize: 13,
+          color: dark ? Colors.white54 : Colors.black45,
+        ),
+      );
+    }
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final tag in widget.tags)
+          _capsule(
+            tag,
+            selected: selected.contains(tag),
+            dark: dark,
+            scheme: scheme,
+            onTap: () {
+              final next = Set<String>.from(selected);
+              if (!next.add(tag)) next.remove(tag);
+              onChanged(next);
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildPresetChips(bool dark, ColorScheme scheme) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final preset in _presets)
+          _presetChip(preset, dark, scheme),
+      ],
+    );
+  }
+
+  Widget _presetChip(SavedFilter preset, bool dark, ColorScheme scheme) {
+    final onSurface = dark ? Colors.white : const Color(0xFF1C1B1F);
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: dark ? Colors.white38 : Colors.black38),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _applyPreset(preset),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 7, 4, 7),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    MdiIcons.bookmark,
+                    size: 15,
+                    color: scheme.primary,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    preset.name,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: onSurface,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => _showPresetActions(preset),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 10, top: 4, bottom: 4),
+              child: Icon(
+                MdiIcons.chevronDown,
+                size: 16,
+                color: dark ? Colors.white54 : Colors.black45,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pill(
+    String label, {
+    required bool selected,
+    required bool dark,
+    required ColorScheme scheme,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: selected
+                ? scheme.primary
+                : (dark ? Colors.white38 : Colors.black38),
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: selected
+                ? scheme.onPrimary
+                : (dark ? Colors.white : const Color(0xFF1C1B1F)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _capsule(
+    String label, {
+    required bool selected,
+    required bool dark,
+    required ColorScheme scheme,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? scheme.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: selected
+                ? scheme.primary
+                : (dark ? Colors.white38 : Colors.black38),
+          ),
+        ),
+        // A plain chip: the fill and border already carry the selected
+        // state, so the checkbox mark was redundant noise.
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: selected
+                ? scheme.onPrimary
+                : (dark ? Colors.white : const Color(0xFF1C1B1F)),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFooterButton(
+    BuildContext context, {
+    required String label,
+    required bool filled,
+    required VoidCallback onTap,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        height: 46,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: filled
+              ? scheme.primary
+              : (dark ? amoled(context, 0xFF2C2C2E) : const Color(0xFFE8EAF0)),
+          borderRadius: BorderRadius.circular(23),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: filled
+                ? scheme.onPrimary
+                : (dark ? Colors.white : const Color(0xFF1C1B1F)),
+          ),
+        ),
+      ),
+    );
+  }
+}

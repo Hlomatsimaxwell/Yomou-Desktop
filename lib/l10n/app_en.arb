@@ -1,0 +1,1695 @@
+{
+  "@@locale": "en",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "share": "Share",
+  "remove": "Remove",
+  "retry": "Retry",
+  "close": "Close",
+  "coverSaveImage": "Save image",
+  "coverSaved": "Cover saved to your gallery",
+  "coverSaveFailed": "Couldn't save the cover",
+  "coverSavePermission": "Allow storage access to save covers",
+  "confirm": "Confirm",
+  "today": "today",
+  "yesterday": "yesterday",
+  "history": "History",
+  "favorites": "Favorites",
+  "suggestions": "Suggestions",
+  "explore": "Explore",
+  "updates": "Updates",
+  "settings": "Settings",
+  "downloads": "Downloads",
+  "bookmarks": "Bookmarks",
+  "mangaSources": "Manga sources",
+  "searchManga": "Search manga",
+  "lastUsed": "Last used",
+  "jan": "Jan",
+  "feb": "Feb",
+  "mar": "Mar",
+  "apr": "Apr",
+  "may": "May",
+  "jun": "Jun",
+  "jul": "Jul",
+  "aug": "Aug",
+  "sep": "Sep",
+  "oct": "Oct",
+  "nov": "Nov",
+  "dec": "Dec",
+  "dateLong": "{month} {day}, {year}",
+  "@dateLong": {
+    "placeholders": {
+      "month": {},
+      "day": {},
+      "year": {}
+    }
+  },
+  "pressBackToExit": "Press back again to exit",
+  "noReadingHistoryYet": "No reading history yet",
+  "noSourceAvailable": "No source available",
+  "noChaptersAvailable": "No chapters available",
+  "failedToContinueReading": "Failed to continue reading: {error}",
+  "@failedToContinueReading": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "settingsAppearance": "Appearance",
+  "settingsAppearanceSubtitle": "Theme, List mode, Language",
+  "settingsMangaSources": "Manga sources",
+  "settingsMangaSourcesSubtitle": "{enabled} of {total}",
+  "sourcesSortingOrder": "Sorting order",
+  "sourcesSortOrderManual": "Manual",
+  "sourcesSortOrderName": "Name",
+  "sourcesSortOrderPopular": "Popular",
+  "sourcesSortOrderLastUsed": "Last used",
+  "sourcesSortOrderPopularReliable": "Popular & reliable",
+  "sourcesReorderManualOnly": "Use Manual sorting to reorder sources",
+  "sourcesReorderClearSearch": "Clear the search to reorder sources",
+  "sourcesManage": "Manage sources",
+  "sourcesShowInGrid": "Show in grid view",
+  "sourcesEnableAll": "Enable all manga sources",
+  "sourcesEnableAllSubtitle": "All available manga sources will be enabled permanently",
+  "sourcesChooseMirror": "Choose mirror automatically",
+  "sourcesChooseMirrorSubtitle": "Automatically switch domains for manga sources on errors if mirrors are available",
+  "sourcesHandleLinks": "Handle links",
+  "sourcesHandleLinksSubtitle": "Handle manga links from external applications (e.g. web browser). You may also need to enable it manually in the application's system settings",
+  "sourcesIncognitoNsfw": "Incognito mode for NSFW manga",
+  "sourcesIncognitoEnable": "Enable",
+  "sourcesIncognitoAsk": "Ask every time",
+  "sourcesIncognitoDisable": "Disable",
+  "sourcesCatalog": "Sources catalog",
+  "sourcesCatalogSubtitle": "Catalog of all available sources",
+  "settingsReader": "Reader settings",
+  "settingsReaderSubtitle": "Reading mode, scale, page flash",
+  "settingsStorage": "Storage and network",
+  "settingsStorageSubtitle": "Storage usage, Data removal, Content preloading",
+  "settingsDownloads": "Downloads",
+  "settingsDownloadsSubtitle": "Downloads folder, Download only via Wi-Fi",
+  "dlsDirsTitle": "Local manga directories",
+  "dlsDirsCount": "{count} items",
+  "@dlsDirsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dlsFolderTitle": "Downloads folder",
+  "dlsFolderChapters": "Chapter downloads",
+  "dlsFolderPublic": "Public downloads",
+  "dlsFolderDocuments": "App documents",
+  "dlsFolderCustom": "Custom: {name}",
+  "@dlsFolderCustom": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "dlsNotSet": "Not set",
+  "dlsFormatTitle": "Preferred download format",
+  "dlsFormatAuto": "Automatic",
+  "dlsFormatCbz": "Single CBZ file",
+  "dlsFormatCbzs": "Multiple CBZ files",
+  "dlsNetworkTitle": "Downloading over cellular network",
+  "dlsNetworkAllow": "Allow always",
+  "dlsNetworkAsk": "Ask every time",
+  "dlsNetworkDeny": "Don't allow",
+  "dlsInfoBody": "Downloaded chapters and saved pages stay on this device so you can read them offline. Everything stored here is removed when you uninstall Yomou.",
+  "dlsSectionSaving": "Saving pages",
+  "dlsSaveDirTitle": "Default page save directory",
+  "dlsAskDirTitle": "Ask for the destination dir every time",
+  "dlsAskDirSubtitle": "Choose where each download is saved before it starts",
+  "dlsChaptersName": "Chapter downloads",
+  "dlsPublicName": "Public downloads",
+  "dlsDocumentsName": "App documents",
+  "dlsCustomName": "Custom folder {n}",
+  "@dlsCustomName": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      }
+    }
+  },
+  "dlsAddSheetTitle": "Add download directory",
+  "dlsAddCustom": "Pick custom folder",
+  "dlsAddCustomSubtitle": "Choose an existing folder on this device",
+  "dlsAdd": "Add",
+  "dlsDefaultMarker": "Default directory",
+  "dlsDefaultSet": "Default directory updated",
+  "dlsDirAdded": "{name} added",
+  "@dlsDirAdded": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "dlsWarning": "Uninstalling Yomou deletes all downloaded chapters and saved pages. Back up anything you want to keep.",
+  "dlsAvailable": "{size} available",
+  "@dlsAvailable": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "dlsNoStats": "Not available for this location",
+  "dlsNoWritePermission": "Yomou can't write to this folder",
+  "dlsCellularConfirmTitle": "Allow downloads over cellular network?",
+  "dlsCellularConfirmBody": "You're on mobile data. Downloading chapters can use a lot of data.",
+  "dlsCellularAllowOnce": "Allow once",
+  "dlsCellularAllowAlways": "Allow always",
+  "dlsCellularDontAllow": "Don't allow",
+  "dlsCellularBlocked": "Download skipped — mobile data downloads are off",
+  "dlgChapterCount": "{count, plural, =1{1 chapter} other{{count} chapters}}",
+  "@dlgChapterCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgSelectedCount": "{count} selected",
+  "@dlgSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgRemoveAll": "Remove all downloads",
+  "dlgRemoveAllTitle": "Remove all downloads?",
+  "dlgRemoveAllBody": "This deletes every downloaded chapter from this device. It can't be undone.",
+  "dlgRemoveSelectedTitle": "Remove selected downloads?",
+  "dlgRemoveSelectedBody": "{count, plural, =1{This deletes 1 downloaded chapter from this device.} other{This deletes {count} downloaded chapters from this device.}} It can't be undone.",
+  "@dlgRemoveSelectedBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgSettingsItem": "Downloads settings",
+  "dlgSettingsItemSubtitle": "Where chapters and saved pages are stored",
+  "dlgRead": "read",
+  "dlgDownloadChannelName": "Downloads",
+  "dlgDownloadChannelDescription": "Progress and results for chapters being saved to this device",
+  "dlgDownloadPreparing": "Preparing download…",
+  "dlgDownloadPreparingChapters": "Preparing {count} chapters…",
+  "@dlgDownloadPreparingChapters": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgDownloadQueued": "Waiting to start",
+  "dlgDownloadPaused": "Paused",
+  "dlgDownloadPages": "{done} of {total} pages",
+  "dlgDownloadChapterOf": "Chapter {done} of {total}",
+  "dlgDownloadEta": "~{minutes} min left",
+  "@dlgDownloadEta": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgDownloadComplete": "Download complete",
+  "dlgDownloadCompleteBody": "{done} chapters saved to this device",
+  "@dlgDownloadCompleteBody": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgDownloadFailed": "Download failed",
+  "dlgDownloadCancelled": "Download cancelled",
+  "dlgDownloadPartialBody": "{done} of {total} chapters saved",
+  "@dlgDownloadPartialBody": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgDownloadResume": "Resume",
+  "dlgDownloadPause": "Pause",
+  "dlgDownloadCancel": "Cancel download",
+  "dlgDownloadCancelTitle": "Cancel this download?",
+  "dlgDownloadCancelBody": "{saved} of {total} chapters are already saved and will stay on this device. The rest will not be downloaded.",
+  "@dlgDownloadCancelBody": {
+    "placeholders": {
+      "saved": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgDownloadRemoveJob": "Remove from list",
+  "dlgInProgress": "In progress",
+  "dlgQueued": "Queued",
+  "dlgFailed": "Failed",
+  "dlgQueuedDownload": "Queued {count} chapters for download",
+  "@dlgQueuedDownload": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dlgAlreadyDownloaded": "Already downloaded",
+  "dlgDownloadNothingQueued": "Nothing to download",
+  "settingsNewChapters": "Check for new chapters",
+  "settingsNewChaptersSubtitle": "Look for updates, Notifications settings",
+  "settingsServices": "Services",
+  "settingsServicesSubtitle": "Suggestions, Synchronization, Tracking",
+  "settingsServicesUnavailable": "Nothing to configure yet",
+  "settingsBackup": "Backup and restore",
+  "settingsBackupSubtitle": "Create or restore a backup, Periodic backups",
+  "settingsAccountsSync": "Accounts and sync",
+  "settingsAccountsSyncSubtitle": "Cloud backup, Sign in",
+  "settingsAbout": "About",
+  "settingsAboutVersion": "Version",
+  "settingsAboutBuild": "Build",
+  "settingsAboutPackage": "Package",
+  "settingsAboutPlatform": "Platform",
+  "aboutCheckForUpdates": "Check for updates",
+  "aboutCheckingForUpdates": "Checking for updates…",
+  "aboutNoUpdate": "You're on the latest version",
+  "aboutChangelog": "Changelog",
+  "aboutChangelogSubtitle": "Changes history for recently released versions",
+  "aboutNoChangelog": "No release notes for this version",
+  "aboutSourceCode": "Source code",
+  "aboutReportBug": "Report a bug",
+  "settingsSearchHint": "Search settings",
+  "settingsSearchNoResults": "No settings match",
+  "appearanceTitle": "Appearance",
+  "appearanceColorScheme": "Color Scheme",
+  "appearanceSectionThemeOptions": "Theme Options",
+  "appearanceSectionEffects": "Effects",
+  "appearanceSectionMangaList": "Manga List",
+  "appearanceSectionMainScreen": "Main Screen",
+  "appearanceNone": "None",
+  "appearanceThemeTitle": "Color mode",
+  "appearanceThemeSystem": "System",
+  "appearanceThemeLight": "Light",
+  "appearanceThemeDark": "Dark",
+  "appearanceAmoledBlack": "Black",
+  "appearanceAmoledBlackSubtitle": "Uses less power on AMOLED screens",
+  "appearanceLanguageTitle": "Language",
+  "appearanceFrostedGlass": "Frosted glass",
+  "appearanceFrostedGlassSubtitle": "Frosted blur on the nav bar, reader controls and floating buttons",
+  "appearanceReduceMotion": "Reduce motion",
+  "appearanceReduceMotionSubtitle": "Skip decorative animation, like the hero sheen and the loading shimmer",
+  "appearanceHaptics": "Haptics",
+  "appearanceHapticsSubtitle": "A tap back when you switch tabs, favourite a title or finish a chapter",
+  "languageFollowSystem": "Follow system",
+  "languageEn": "English",
+  "languageEs": "Español",
+  "languageFr": "Français",
+  "languageDe": "Deutsch",
+  "languagePt": "Português",
+  "languageIt": "Italiano",
+  "languageRu": "Русский",
+  "languageJa": "日本語",
+  "languageKo": "한국어",
+  "languageZh": "简体中文",
+  "languageAr": "العربية",
+  "languageHi": "हिन्दी",
+  "appearanceListModeTitle": "List mode",
+  "listModeGrid": "Grid",
+  "listModeList": "List",
+  "appearanceGridSize": "Grid size: {percent}%",
+  "@appearanceGridSize": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "appearanceGridSizeTitle": "Grid size",
+  "appearanceDisplaySizeTitle": "Display size",
+  "appearanceQuickFilters": "Show quick filters",
+  "appearanceQuickFiltersSubtitle": "Provides the ability to filter manga lists by certain parameters",
+  "appearanceReadingProgress": "Show reading progress indicators",
+  "appearanceReadingProgressSubtitle": "Percent read",
+  "appearanceBadges": "Badges in lists",
+  "appearanceBadgesSubtitle": "Saved manga, Favorites",
+  "appearanceDetails": "Details",
+  "appearanceCollapseDescription": "Collapse long description",
+  "appearancePagesThumbnails": "Show pages thumbnails",
+  "appearancePagesThumbnailsSubtitle": "Enable the 'Pages' tab on the details screen",
+  "appearanceDefaultTabTitle": "Default tab",
+  "appearanceSearchSuggestionsTitle": "Search suggestions",
+  "appearanceMainSectionsTitle": "Main screen sections",
+  "appearanceMainSectionsSubtitle": "Categories to show in the main screen",
+  "appearanceFloatingContinue": "Show floating Continue button",
+  "appearanceNavLabels": "Show labels in navigation bar",
+  "appearanceFloatingNav": "Floating navigation bar",
+  "appearancePinNav": "Pin navigation UI",
+  "appearancePinNavSubtitle": "Do not hide navigation bar and search view on scroll",
+  "appearanceExitConfirmation": "Exit confirmation",
+  "appearanceExitConfirmationSubtitle": "Press Back twice to exit the app",
+  "appearanceRecentShortcuts": "Show recent manga shortcuts",
+  "appearanceHideNsfwShortcuts": "Hide NSFW from shortcuts",
+  "appearancePrivacy": "Privacy",
+  "appearanceProtectApp": "Protect the app",
+  "appearanceProtectAppSubtitle": "Require authentication to open Yomou",
+  "appearanceScreenshotPolicyTitle": "Screenshot policy",
+  "screenshotPolicyAllow": "Allow",
+  "screenshotPolicyBlock": "Block",
+  "appLockEnterTitle": "Enter PIN",
+  "appLockEnterSubtitle": "Enter your 4-digit PIN to open Yomou",
+  "appLockSetTitle": "Set PIN",
+  "appLockSetSubtitle": "Choose a 4-digit PIN to protect the app",
+  "appLockVerifyTitle": "Enter current PIN",
+  "appLockVerifySubtitle": "Confirm your current PIN",
+  "appLockWrongPin": "Wrong PIN, try again",
+  "appLockCancel": "Cancel",
+  "homeRecent": "Recent",
+  "suggestionHistory": "History",
+  "suggestionTrending": "Trending",
+  "suggestionNew": "New",
+  "suggestionPopular": "Popular",
+  "defaultTabLastUsed": "Last used",
+  "defaultTabHistory": "History",
+  "defaultTabFavorites": "Favorites",
+  "defaultTabSuggestions": "Suggestions",
+  "defaultTabExplore": "Explore",
+  "defaultTabUpdates": "Updates",
+  "favoritesSearchHint": "Search favorites",
+  "favoritesCouldNotLoad": "Could not load favorites",
+  "favoritesNoMatch": "No favorites match your search",
+  "favoritesEmpty": "No favorites yet",
+  "favoritesEmptySubtitle": "Tap the heart on any manga to add it here.",
+  "bookmarksTitle": "Bookmarks",
+  "deleteBookmarkTitle": "Delete bookmark?",
+  "bookmarkPage": "Page {page}",
+  "@bookmarkPage": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "bookmarkItem": "\"{title}\" • page {page}",
+  "@bookmarkItem": {
+    "placeholders": {
+      "title": {},
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "bookmarksEmpty": "No bookmarks yet",
+  "bookmarksEmptySubtitle": "Bookmark pages while reading to save them here",
+  "deleteBookmarkTooltip": "Delete bookmark",
+  "removeDownloadTitle": "Remove download?",
+  "removeDownloadContent": "\"{title}\" will be deleted from your device.",
+  "downloadsEmpty": "No downloaded chapters yet",
+  "downloadsEmptySubtitle": "Download chapters in the reader to read offline",
+  "chapterNum": "Chapter {number}",
+  "@chapterNum": {
+    "placeholders": {
+      "number": {}
+    }
+  },
+  "downloadsPagesDate": "{pages} pages • {date}",
+  "@downloadsPagesDate": {
+    "placeholders": {
+      "pages": {
+        "type": "int"
+      },
+      "date": {}
+    }
+  },
+  "removeDownloadTooltip": "Remove download",
+  "exploreLocalStorage": "Local storage",
+  "exploreRandom": "Random",
+  "exploreManage": "Manage",
+  "exploreMore": "More",
+  "featuredManga": "Featured",
+  "readNow": "Read now",
+  "manageSources": "Manage sources",
+  "incognitoMode": "Incognito mode",
+  "incognitoNoSaveHint": "Your reading progress will not be saved",
+  "noRandomRightNow": "No manga available for Random right now",
+  "couldNotFindRandom": "Could not find a random manga",
+  "historyClearTitle": "Clear history",
+  "historyClearLastHours": "Last 2 hours",
+  "historyClearToday": "Today",
+  "historyClearNotFavorites": "Not in favorites",
+  "historyClearAll": "Clear all history",
+  "historyClear": "Clear",
+  "historyUpdated": "History updated",
+  "historyListMode": "List mode",
+  "historyCompactMode": "Compact",
+  "historyDetailsMode": "Details",
+  "historyGridSize": "Grid size",
+  "historyGridSizeColumns": "{columns} Columns",
+  "@historyGridSizeColumns": {
+    "placeholders": {
+      "columns": {
+        "type": "int"
+      }
+    }
+  },
+  "favoritesGridSize": "Grid size",
+  "favoritesGridSizeColumns": "{columns} Columns",
+  "@favoritesGridSizeColumns": {
+    "placeholders": {
+      "columns": {
+        "type": "int"
+      }
+    }
+  },
+  "historySortingOrder": "Sorting order",
+  "historySortAdded": "Added",
+  "historySortOldest": "Oldest",
+  "historySortProgress": "Progress",
+  "historySortUnread": "Unread",
+  "historySortName": "Name",
+  "historySortNameReversed": "Name reversed",
+  "historySortNewChapters": "New chapters",
+  "historySortLastRead": "Last read",
+  "historySortLongAgo": "Long time ago read",
+  "historySortUpdated": "Updated",
+  "historyGroup": "Group",
+  "historyListOptions": "List options",
+  "historyStatistics": "Statistics",
+  "readingStatistics": "Reading statistics",
+  "statsTimeDay": "Day",
+  "statsTimeWeek": "Week",
+  "statsTimeMonth": "Month",
+  "statsTimeThreeMonths": "Three months",
+  "statsTimeAllTime": "All time",
+  "statsFavorites": "Favorites",
+  "statsOtherManga": "Other manga",
+  "statsMinutes": "{minutes} minutes",
+  "@statsMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "num"
+      }
+    }
+  },
+  "statsMinute": "1 minute",
+  "statsTotal": "Total",
+  "statsEmptyTitle": "No reading yet",
+  "statsEmptySubtitle": "Time you spend reading will show up here once you start a chapter.",
+  "statsClearTitle": "Clear statistics?",
+  "statsClearMessage": "This removes all recorded reading time and the chapter log used for the charts. Your library is untouched.",
+  "statsClear": "Clear statistics",
+  "statsCleared": "Statistics cleared",
+  "historyOnDevice": "On device",
+  "historyNewChapters": "New chapters",
+  "historyCompleted": "Completed",
+  "historyEmptyTitle": "No reading history found",
+  "historyEmptySubtitle": "Manga you read will appear here.",
+  "historyGroupToday": "Today",
+  "historyGroupYesterday": "Yesterday",
+  "historyGroupDaysAgo": "{count} days ago",
+  "@historyGroupDaysAgo": {
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "historyGroupRest": "Rest",
+  "historyLastReadChapter": "Last read: Chapter {chapter}",
+  "@historyLastReadChapter": {
+    "placeholders": {
+      "chapter": {}
+    }
+  },
+  "historyChapterShort": "Ch. {chapter}",
+  "@historyChapterShort": {
+    "placeholders": {
+      "chapter": {}
+    }
+  },
+  "searchEverywhereBusy": "Searching \"{tag}\" everywhere...",
+  "@searchEverywhereBusy": {
+    "placeholders": {
+      "tag": {}
+    }
+  },
+  "searchOnSource": "Search on {source}",
+  "@searchOnSource": {
+    "placeholders": {
+      "source": {}
+    }
+  },
+  "searchEverywhere": "Search everywhere",
+  "sourceNotSupported": "This source is not supported from here.",
+  "contentUnavailable": "Content unavailable",
+  "contentUnavailableBody1": "This manga's source is not installed on this device.",
+  "contentUnavailableBody2": "Alternatives searches the other enabled sources for the same title, so you can carry on reading where you left off.",
+  "findOnOtherSources": "Find on other sources",
+  "chapterStatusReadDownloaded": "Read • Downloaded",
+  "chapterStatusRead": "Read",
+  "chapterStatusDownloaded": "Downloaded",
+  "downloadedChaptersCount": "Downloaded {count} chapter(s)",
+  "@downloadedChaptersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "deletedSelectedDownloads": "Deleted selected downloads",
+  "pagesHintStartReading": "Start reading to see pages",
+  "pagesUnavailable": "No pages available",
+  "mangaDetailBookmarkItem": "{title} • Page {page}",
+  "@mangaDetailBookmarkItem": {
+    "placeholders": {
+      "title": {},
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "clearUpdates": "Clear updates",
+  "clearUpdatesPrompt": "Clear all update history permanently?",
+  "clearNewChaptersCounters": "Also clear information about new chapters",
+  "clear": "Clear",
+  "noNote": "No note",
+  "selectRange": "Select range",
+  "selectAll": "Select all",
+  "deselectAll": "Deselect all",
+  "toggleRead": "Toggle read",
+  "detailDownload": "Download",
+  "removeFromHistory": "Remove from history",
+  "favorited": "Favorited",
+  "favorite": "Favorite",
+  "chapterOfTotal": "Chapter {current} of {total}",
+  "@chapterOfTotal": {
+    "placeholders": {
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "chaptersCount": "{total} chapters",
+  "@chaptersCount": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "detailSource": "Source",
+  "detailAuthor": "Author",
+  "detailTranslation": "Translation",
+  "detailYear": "Year",
+  "detailState": "State",
+  "searchChapters": "Find chapter",
+  "chaptersGridView": "Chapters grid view",
+  "gridSize": "Grid size",
+  "detailChapters": "Chapters",
+  "detailProgress": "Progress",
+  "detailOnDevice": "On Device",
+  "detailReverseOrder": "Reverse order",
+  "unknown": "Unknown",
+  "noDescription": "No description available.",
+  "description": "Description",
+  "relatedManga": "Related manga",
+  "showAll": "Show all",
+  "continueAction": "Continue",
+  "readAction": "Read",
+  "chapterNumShort": "Ch.{number}",
+  "@chapterNumShort": {
+    "description": "Compact chapter label for a list row. The full word is too heavy at list weight, so the row abbreviates it and lets the metadata carry the detail.",
+    "placeholders": {
+      "number": {}
+    }
+  },
+  "detailTabChapters": "Chapters",
+  "detailTabPages": "Pages",
+  "chapterDateToday": "Today",
+  "chapterDateYesterday": "Yesterday",
+  "chapterDaysAgo": "{days} days ago",
+  "@chapterDaysAgo": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "mangaDetailBookmarksEmpty": "You can create bookmarks while reading manga.",
+  "colorCorrection": "Color correction",
+  "filterBrightness": "Brightness",
+  "filterContrast": "Contrast",
+  "filterSepia": "Sepia",
+  "filterWarmth": "Warmth",
+  "reset": "Reset",
+  "done": "Done",
+  "readerPageSavedTo": "Page saved to {path}",
+  "@readerPageSavedTo": {
+    "placeholders": {
+      "path": {}
+    }
+  },
+  "readerFailedToSavePage": "Failed to save page",
+  "readerCurrentChapter": "Current chapter",
+  "readerCancelDownload": "Cancel download",
+  "readerDownloadChapter": "Download chapter",
+  "readerPagesLoading": "Pages loading...",
+  "readerFailedToLoadBookmarks": "Failed to load bookmarks",
+  "readerBookmarksHint": "Bookmark pages while reading to save them here",
+  "readerNoDownloads": "No downloaded chapters yet",
+  "readerRemoveBookmarkTitle": "Remove bookmark?",
+  "readerBookmarkLine": "{title} • Page {page}",
+  "@readerBookmarkLine": {
+    "placeholders": {
+      "title": {},
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "readerChapterNotFound": "Chapter not found",
+  "readerChaptersTitle": "Chapters",
+  "readerSavePage": "Save page",
+  "readerRemoveBookmark": "Remove bookmark",
+  "readerAddBookmark": "Add bookmark",
+  "readerSectionReadingMode": "Reading mode",
+  "readerSectionOptions": "Options",
+  "readerTwoPagesLandscape": "Use two pages layout on landscape orientation (beta)",
+  "readerExperimental": "Experimental",
+  "readerRotateScreen": "Lock screen rotation",
+  "readerLandscapeOrientation": "Landscape orientation",
+  "readerRotateToLandscape": "Rotate to landscape",
+  "readerAutoScroll": "Automatic scroll",
+  "readerContinuousScroll": "Continuous vertical scroll",
+  "readerShowStatus": "Show reader status",
+  "readerHideControlsStatus": "Show progress, battery and time when controls are hidden",
+  "readerPreferences": "Reader preferences",
+  "readerPreferencesSubtitle": "Two-page layout, auto-scroll, status bar and more",
+  "readerSectionTools": "Tools",
+  "readerBrightnessContrastSepia": "Brightness, contrast, sepia",
+  "readerAppPreferences": "App preferences",
+  "readerModeStandard": "Standard",
+  "readerModeRTL": "R-to-L",
+  "readerModeVertical": "Vertical",
+  "readerModeWebtoon": "Webtoon",
+  "readerRememberedNote": "The chosen configuration will be remembered for this manga.",
+  "readerFailedLoadChapterPages": "Failed to load chapter pages",
+  "readerFailedDownloadChapter": "Failed to download chapter",
+  "readerDownloadedChapter": "Downloaded {title}",
+  "@readerDownloadedChapter": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "readerRemoveDownloadTitle": "Remove download?",
+  "readerThisChapter": "This chapter",
+  "readerSavedFromChapter": "Saved from {title}",
+  "@readerSavedFromChapter": {
+    "placeholders": {
+      "title": {}
+    }
+  },
+  "readerBookmarkRemovedNice": "Bookmark removed — {title} • Page {page}",
+  "@readerBookmarkRemovedNice": {
+    "placeholders": {
+      "title": {},
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "readerBookmarked": "Bookmarked {title} • Page {page}",
+  "@readerBookmarked": {
+    "placeholders": {
+      "title": {},
+      "page": {
+        "type": "int"
+      }
+    }
+  },
+  "readerChapterShort": "Ch. {chapter}",
+  "@readerChapterShort": {
+    "placeholders": {
+      "chapter": {}
+    }
+  },
+  "readerFailedLoadPage": "Failed to load page",
+  "readerLoadingNextChapter": "Loading next chapter...",
+  "readerReachedLatestChapter": "You have reached the latest chapter!",
+  "readerPreviousChapter": "Previous chapter",
+  "readerNextChapter": "Next chapter",
+  "readerDownloadedChapterDate": "{count} pages • downloaded {date}",
+  "@readerDownloadedChapterDate": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "date": {}
+    }
+  },
+  "readerMoreSheetTitle": "More",
+  "searchSources": "Search sources...",
+  "switchedToSource": "Switched to {source}",
+  "@switchedToSource": {
+    "placeholders": {
+      "source": {}
+    }
+  },
+  "toTop": "To top",
+  "pin": "Pin",
+  "enableSource": "Enable source",
+  "disableSource": "Disable source",
+  "disabled": "Disabled",
+  "cannotDisableActiveSource": "Switch to another source before disabling this one",
+  "cannotSelectDisabledSource": "Enable this source before browsing it",
+  "createShortcut": "Create shortcut",
+  "disableNsfw": "Disable NSFW",
+  "disableNsfwSubtitle": "Disable NSFW sources and hide adult manga from list if possible",
+  "notificationSettingsDescription": "Checks your library in the background and alerts you when a series you follow gets a new chapter.",
+  "notificationSettingsEnable": "New chapter notifications",
+  "notificationSettingsOn": "Checking in the background",
+  "notificationSettingsOff": "Off",
+  "notificationPermissionDenied": "Notification permission was denied. Enable it in system settings.",
+  "notificationPreviewSection": "Preview",
+  "notificationPreviewNewChapters": "New chapters notification",
+  "notificationPreviewSuggested": "Suggested manga notification",
+  "notificationOptionsSection": "Options",
+  "notificationWifiOnly": "Only on Wi-Fi",
+  "notificationWifiOnlySubtitle": "Do not check using metered network connections",
+  "notificationFrequency": "Frequency of check",
+  "frequencyManual": "Manual",
+  "frequencyLess": "Less frequently",
+  "frequencyDefault": "Default",
+  "frequencyMore": "More frequently",
+  "notificationScope": "Look for updates",
+  "notificationScopeSubtitle": "{enabled} of {total} on",
+  "@notificationScopeSubtitle": {
+    "placeholders": {
+      "enabled": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "notificationScopeFavorites": "Favorites",
+  "notificationScopeHistory": "History",
+  "notificationCategories": "Favorite categories",
+  "notificationCategoriesSubtitle": "{enabled} of {total} on",
+  "@notificationCategoriesSubtitle": {
+    "placeholders": {
+      "enabled": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "notificationCategoriesNone": "No favorite categories yet",
+  "notificationNsfw": "Disable NSFW notifications",
+  "notificationNsfwSubtitle": "Skip mature content when checking and suggesting",
+  "notificationDownload": "Download new chapters",
+  "autoDownloadNever": "Never",
+  "autoDownloadDownloaded": "Manga with downloaded chapters",
+  "autoDownloadRecentlyRead": "Recently read manga",
+  "notificationCheckLogSection": "Debug & System",
+  "notificationCheckNow": "Check for new chapters now",
+  "notificationCheckRunning": "Checking...",
+  "notificationCheckDone": "Check completed",
+  "notificationCheckFailed": "Check failed",
+  "notificationLog": "Checking for new chapters log",
+  "notificationLogEmpty": "No checks have run yet",
+  "notificationBattery": "Disable battery optimization",
+  "notificationBatterySubtitle": "Android may kill background workers unless you whitelist this app",
+  "notificationLogChecked": "Checked {scanned} series",
+  "@notificationLogChecked": {
+    "placeholders": {
+      "scanned": {
+        "type": "int"
+      }
+    }
+  },
+  "notificationLogFound": "{series} series, {chapters} new chapters",
+  "@notificationLogFound": {
+    "placeholders": {
+      "series": {
+        "type": "int"
+      },
+      "chapters": {
+        "type": "int"
+      }
+    }
+  },
+  "notificationLogSuggested": "Suggested {title}",
+  "@notificationLogSuggested": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "searchCatalog": "Search catalog...",
+  "noMangaFound": "No manga found",
+  "noResultsFound": "No results found",
+  "tryDifferentSearch": "Try a different search query.",
+  "searchHintAny": "Enter manga title or genre",
+  "searchEllipsis": "Search...",
+  "searchThisSource": "Search this source...",
+  "randomMangaTooltip": "Random manga",
+  "feedNoNewUpdates": "No new updates yet",
+  "suggestionsNoResults": "No suggestions found",
+  "suggestionsNoGenreResults": "No manga found for this genre on this source",
+  "clearSearchHistory": "Clear search history",
+  "failedToSearch": "Failed to search",
+  "refreshResults": "Refresh results",
+  "clearSearchQuery": "Clear search query",
+  "filterUpdated": "Updated",
+  "filterTitle": "Filter",
+  "filterClose": "Close filters",
+  "filterReset": "Reset filters",
+  "filterSort": "Sort",
+  "filterLanguage": "Language",
+  "filterGenres": "Genres",
+  "filterExcludeGenres": "Exclude genres",
+  "filterMangaState": "Manga state",
+  "filterYear": "Release year",
+  "filterSaved": "Filter saved",
+  "filterSavePresetTitle": "Save filter",
+  "filterSavePresetHint": "Filter name",
+  "filterSavedPreset": "Saved \"{name}\"",
+  "@filterSavedPreset": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "filterCancel": "Cancel",
+  "filterSavedFilters": "Saved Filters",
+  "filterPresetApplied": "Applied \"{name}\"",
+  "@filterPresetApplied": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "filterRename": "Rename",
+  "filterDelete": "Delete",
+  "filterDeleteConfirmTitle": "Delete filter?",
+  "filterDeleteConfirmBody": "This will remove \"{name}\".",
+  "@filterDeleteConfirmBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "filterPresetDeleted": "Filter deleted",
+  "filterSave": "Save",
+  "filterDone": "Done",
+  "filterApply": "Apply",
+  "openFullDetails": "Open full details",
+  "previewSourceMissing": "Source not available",
+  "previewSourceMissingSubtitle": "This title came from a source that is no longer installed, so its details cannot be loaded.",
+  "filterAllLanguages": "All",
+  "filterStateFinished": "Finished",
+  "filterStateDropped": "Dropped",
+  "filterStateUpcoming": "Upcoming",
+  "filterNoTags": "This source has no genre list.",
+  "failedToLoadManga": "Failed to load manga",
+  "hideFailedSources": "Hide failed sources",
+  "showFailedSources": "Show failed sources",
+  "showAllCount": "Show all ({count})",
+  "@showAllCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sourceFailed": "Source failed",
+  "contentNotFoundRemoved": "Content not found or removed",
+  "feedUpdatesHint": "Manga you read will show here when new chapters are released.",
+  "failedToLoadUpdates": "Failed to load updates",
+  "failedToLoadSuggestions": "Failed to load suggestions",
+  "checking": "Checking",
+  "refresh": "Refresh",
+  "refreshed": "Refreshed",
+  "updatesTitle": "Updates",
+  "showMore": "More",
+  "showLess": "Less",
+  "mangaEdit": "Edit",
+  "findSimilar": "Find similar",
+  "alternatives": "Alternatives",
+  "altEnabledSources": "Enabled sources",
+  "altSourcesCount": "{x}/{y} sources",
+  "@altSourcesCount": {
+    "placeholders": {
+      "x": {
+        "type": "num"
+      },
+      "y": {
+        "type": "num"
+      }
+    }
+  },
+  "altMigrateTitle": "Manga migration",
+  "altMigrateBody": "{fromTitle} from {fromSource} will be replaced with {toTitle} from {toSource} in your history and favorites (if present).",
+  "@altMigrateBody": {
+    "placeholders": {
+      "fromTitle": {
+        "type": "String"
+      },
+      "fromSource": {
+        "type": "String"
+      },
+      "toTitle": {
+        "type": "String"
+      },
+      "toSource": {
+        "type": "String"
+      }
+    }
+  },
+  "altMigrate": "Migrate",
+  "altMigrateFailed": "Migration failed. Please try again.",
+  "altSortTitle": "Sorting order",
+  "altSortBest": "Best match",
+  "altSortMostChapters": "Most chapters",
+  "altSortClosest": "Closest chapter count",
+  "altSortPriority": "Source priority",
+  "altSources": "Manga sources",
+  "altAllSources": "All sources",
+  "altSameLanguage": "Same language as current",
+  "altSameType": "Same content type as current",
+  "altReplace": "Replace",
+  "openInBrowser": "Open in web browser",
+  "shareLinkInYomou": "Link to manga in Yomou",
+  "shareLinkOnSource": "Link to manga on {source}",
+  "@shareLinkOnSource": {
+    "placeholders": {
+      "source": {}
+    }
+  },
+  "copiedToClipboard": "Copied to clipboard",
+  "urlUnavailable": "The web address for this manga is unavailable.",
+  "replaceSource": "Replace source",
+  "shortcutCreated": "Home-screen shortcut created",
+  "editMangaTitle": "Title",
+  "editMangaCover": "Cover",
+  "editMangaTags": "Tags",
+  "save": "Save",
+  "metadataSaved": "Manga metadata updated",
+  "replaceSourceDone": "Re-bound to {source}",
+  "noSourceToReplace": "No source available to switch to",
+  "saveManga": "Save manga",
+  "chapters": "chapters",
+  "downloadWholeManga": "Whole manga ({count} chapters)",
+  "downloadFirstChapters": "First {count} chapters",
+  "downloadNextUnread": "Next {count} unread chapters",
+  "downloadHint": "You can select chapters to download by long click on item in the chapter list.",
+  "startDownload": "Start download",
+  "startDownloadQueueHint": "Turn off to queue downloads instead of starting immediately.",
+  "moreOptions": "More options",
+  "destinationDirectory": "Destination directory",
+  "preferredFormat": "Preferred download format",
+  "download": "Download",
+  "downloadsQueued": "Downloads queued",
+  "downloadNotReady": "Chapters are still loading. Try again in a moment.",
+  "formatAutomatic": "Automatic",
+  "formatCbz": "CBZ",
+  "formatImages": "Images",
+  "destInternalStorage": "Internal shared storage",
+  "destAppFiles": "App external files",
+  "destCacheFolder": "Cache",
+  "historySelectedCount": "{count} selected",
+  "@historySelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "historyRemovedCount": "{count} removed from history",
+  "@historyRemovedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "historyUndo": "Undo",
+  "historyEdit": "Edit",
+  "historyMarkCompleted": "Mark as completed",
+  "historyComingSoon": "Coming soon",
+  "comingSoon": "Coming soon",
+  "historyFavoritedCount": "{count} added to favorites",
+  "@historyFavoritedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "historyAlreadyFavorite": "Already in favorites",
+  "removeFromFavorites": "Remove from favorites",
+  "historyUnfavoritedCount": "{count} removed from favorites",
+  "@historyUnfavoritedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "historyNotFavorite": "Not in favorites",
+  "editPickFromFiles": "Pick custom file",
+  "editCoversFromSources": "Covers from other sources",
+  "editUseDefaultCover": "Use default cover",
+  "editTitleHint": "Manga title",
+  "editChangesNote": "These changes will affect how manga is displayed in the app.",
+  "editNoAltCovers": "No alternative covers available for this source.",
+  "editCoverSaveFailed": "Could not save the picked image.",
+  "editSelectOneToEdit": "Select exactly one manga to edit",
+  "coversProgress": "{done} / {total} sources",
+  "@coversProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "coversCurrent": "Current cover",
+  "coversUseThis": "Use this cover",
+  "coversNoResults": "No alternative covers found",
+  "storageUsageTitle": "Storage usage",
+  "storageSavedManga": "Saved manga",
+  "storagePagesCache": "Pages cache",
+  "storageOtherCache": "Other cache",
+  "storageAvailable": "Available",
+  "storageDataRemoval": "Data removal",
+  "storageContentPreloading": "Content preloading",
+  "storageCacheSection": "Image cache",
+  "storageCacheMaxTitle": "Cache size",
+  "storageCacheMaxSubtitle": "{count} files",
+  "@storageCacheMaxSubtitle": {
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "storageCacheStaleTitle": "Cache staleness",
+  "storageCacheStaleSubtitle": "{count} days",
+  "@storageCacheStaleSubtitle": {
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "storagePreloadTitle": "Pre-cache next chapter",
+  "storagePreloadSubtitle": "Download the next chapter in the background while reading",
+  "storageClearTitle": "Clear image cache",
+  "storageClearSubtitle": "Currently using {size}",
+  "@storageClearSubtitle": {
+    "placeholders": {
+      "size": {}
+    }
+  },
+  "storageClearConfirmTitle": "Clear image cache?",
+  "storageClearConfirmBody": "All cached pages and covers will be removed. They are re-downloaded when you next view them.",
+  "storageCancel": "Cancel",
+  "storageClearDone": "Image cache cleared",
+  "storageUnknown": "unknown",
+  "backupRestore": "Backup and restore",
+  "backupSaved": "Backup saved",
+  "importComplete": "Import complete",
+  "restoreComplete": "Restore complete",
+  "createDataBackup": "Create data backup",
+  "backupSubtitle": "You can create backup of your history and favorites and restore it",
+  "restoreFromBackup": "Restore from backup",
+  "restoreSubtitle": "Restore previously created backup",
+  "backupFixLibrary": "Remove unreadable entries",
+  "backupFixLibrarySubtitle": "Drop library items whose ids can never load chapters (e.g. mis-imported)",
+  "backupFixLibraryNone": "Library is clean",
+  "backupFixLibraryConfirm": "Remove {count} unreadable entries?",
+  "@backupFixLibraryConfirm": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "backupFixLibraryRemove": "Remove",
+  "backupFixLibraryDone": "Removed {count} entries",
+  "@backupFixLibraryDone": {
+    "placeholders": {
+      "count": {
+        "type": "num"
+      }
+    }
+  },
+  "exportTachiyomi": "Export to Tachiyomi/Mihon",
+  "exportTachiyomiSubtitle": "Export favorites and history in Tachiyomi format",
+  "importTachiyomi": "Import from Tachiyomi/Mihon",
+  "importTachiyomiSubtitle": "Import favorites from a .tachibk backup",
+  "tachiyomiExportDone": "{count} manga exported to Tachiyomi/Mihon",
+  "@tachiyomiExportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "tachiyomiImportDone": "{count} manga imported from Tachiyomi/Mihon",
+  "@tachiyomiImportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupSkipped": "{count} skipped",
+  "@backupSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "importResultsTitle": "Import results",
+  "importResultsImported": "{count} imported",
+  "@importResultsImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "importResultsNotImported": "{count} not imported",
+  "@importResultsNotImported": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "importResultsAllImported": "All manga were imported successfully",
+  "importResultsImportedSection": "Imported",
+  "importResultsSkippedSection": "Not imported",
+  "importResultsSkippedReasonSource": "No supported source for {source}",
+  "@importResultsSkippedReasonSource": {
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "importResultsSkippedReasonSourceFallback": "Yomou doesn't have this source",
+  "importResultsSkippedReasonId": "Couldn't match a manga url",
+  "importResultsReadTo": "Read to chapter {chapter}",
+  "importResultsRecoveredSection": "Found on another source",
+  "importResultsRecoveredOn": "Found on {source}",
+  "@importResultsRecoveredOn": {
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "importScanTitle": "Looking for missing titles",
+  "importScanProgress": "{done}/{total} scanned",
+  "@importScanProgress": {
+    "placeholders": {
+      "done": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+
+  "@importResultsReadTo": {
+    "placeholders": {
+      "chapter": {
+        "type": "num"
+      }
+    }
+  },
+  "tachiyomiExportNone": "No compatible manga found to export",
+  "tachiyomiImportInvalid": "Invalid Tachiyomi backup file",
+  "tachiyomiImportNone": "No compatible manga found to import",
+  "exportKotatsu": "Export to Kotatsu",
+  "exportKotatsuSubtitle": "Export favorites and history as a Kotatsu backup (.bk.zip)",
+  "importKotatsu": "Import from Kotatsu",
+  "importKotatsuSubtitle": "Import favorites from a Kotatsu backup (.bk.zip)",
+  "encryptedSectionTitle": "Encrypted backup (coming soon)",
+  "otherSectionTitle": "Other",
+  "exportEncrypted": "Export encrypted backup",
+  "exportEncryptedSubtitle": "Encrypted Yomou backup (.yenc) protected by a password",
+  "importEncrypted": "Import encrypted backup",
+  "importEncryptedSubtitle": "Restore from an encrypted Yomou backup (.yenc)",
+  "encryptedBackupPassword": "Password",
+  "encryptedBackupPasswordHint": "Enter a password",
+  "encryptedBackupNone": "Nothing to export",
+  "encryptedBackupDone": "{count} entries exported",
+  "encryptedBackupImported": "{count} entries imported",
+  "encryptedBackupWrongPassword": "Wrong password or corrupt backup",
+  "kotatsuSectionTitle": "Kotatsu",
+  "tachiyomiSectionTitle": "Tachiyomi / Mihon",
+  "kotatsuExportDone": "{count} manga exported to Kotatsu",
+  "@kotatsuExportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "kotatsuExportNone": "No compatible manga found to export",
+  "kotatsuImportDone": "{count} manga imported from Kotatsu",
+  "@kotatsuImportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "kotatsuImportNone": "No compatible manga found to import",
+  "kotatsuImportInvalid": "Invalid Kotatsu backup file",
+  "periodicBackups": "Periodic backups",
+  "cloudBackup": "Cloud backup",
+  "googleDriveBackup": "Google Drive backup",
+  "enablePeriodicBackups": "Enable periodic backups",
+  "backupsOutputDirectory": "Backups output directory",
+  "backupsOutputDirectoryNone": "No directory chosen",
+  "backupCreationFrequency": "Backup creation frequency",
+  "deleteOldBackups": "Delete old backups",
+  "maxNumberOfBackups": "Max number of backups",
+  "lastSuccessfulBackup": "Last successful backup",
+  "lastSuccessfulBackupTime": "Last successful backup: {time}",
+  "@lastSuccessfulBackupTime": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "backupNever": "Never",
+  "backupJustNow": "Just now",
+  "backupMinutesAgo": "{count, plural, =1{1 minute ago} other{{count} minutes ago}}",
+  "@backupMinutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupHoursAgo": "{count, plural, =1{1 hour ago} other{{count} hours ago}}",
+  "@backupHoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupDaysAgo": "{count, plural, =1{1 day ago} other{{count} days ago}}",
+  "@backupDaysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupWeeksAgo": "{count, plural, =1{1 week ago} other{{count} weeks ago}}",
+  "@backupWeeksAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupMonthsAgo": "{count, plural, =1{1 month ago} other{{count} months ago}}",
+  "@backupMonthsAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "backupYearsAgo": "{count, plural, =1{1 year ago} other{{count} years ago}}",
+  "refreshEveryHour": "Every hour",
+  "refreshEvery3Hours": "Every 3 hours",
+  "refreshEvery6Hours": "Every 6 hours",
+  "refreshEvery12Hours": "Every 12 hours",
+  "refreshDaily": "Daily",
+  "refreshEvery2Days": "Every 2 days",
+  "refreshEvery4Days": "Every 4 days",
+  "refreshWeekly": "Every week",
+  "suggestionsRefresh": "Suggestions refresh",
+  "suggestionsRefreshTitle": "Suggestions refresh rate",
+  "@backupYearsAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sourceFilter": "Filter",
+  "sourceListOptions": "List options",
+  "sourceListMode": "List mode",
+  "sourceGridSize": "Grid size",
+  "sourceGridSizeColumns": "{columns} Columns",
+  "@sourceGridSizeColumns": {
+    "placeholders": {
+      "columns": {
+        "type": "int"
+      }
+    }
+  },
+  "sourceDomain": "Domain",
+  "sourceDefault": "Default: {value}",
+  "@sourceDefault": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "sourceUserAgent": "UserAgent header",
+  "sourceSignIn": "Sign in",
+  "sourceNotSignedIn": "Not signed in",
+  "sourceClearCookies": "Clear cookies",
+  "sourceClearCookiesSubtitle": "Clear cookies for specified domain only. In most cases this will invalidate authorization.",
+  "sourceCookiesCleared": "All cookies were removed",
+  "sourceAuthorized": "Authorized",
+  "sourceCaptchaSolver": "Disable automatic CAPTCHA solving",
+  "sourceCaptchaSolverSubtitle": "Don't try to solve CAPTCHA silently in the background. You will be asked to solve it manually instead.",
+  "sourceCaptchaNotif": "Disable CAPTCHA notifications",
+  "sourceCaptchaNotifSubtitle": "You will not receive notifications about solving CAPTCHA for this source, but this can lead to breaking background operations (checking for new chapters, obtaining recommendations, etc.).",
+  "sourceDownloadSlowdown": "Download slowdown",
+  "sourceDownloadSlowdownSubtitle": "Helps avoid blocking your IP address.",
+  "sourceTest": "Test source",
+  "sourceTestSubtitle": "Check the connection and see the raw response",
+  "sourceTestTitles": "Titles",
+  "sourceTestError": "Error",
+  "sourceTestUnknown": "Source not found",
+  "sourceOpenInBrowser": "Open in web browser",
+  "signInLoggedInAs": "Logged in as",
+  "captchaRequiredTitle": "This source requires solving a captcha to continue.",
+  "@captchaRequiredTitle": {
+    "description": "captchaRequiredTitle"
+  },
+  "captchaSolve": "Solve",
+  "@captchaSolve": {
+    "description": "captchaSolve"
+  },
+  "captchaSolveTitle": "Solve captcha",
+  "@captchaSolveTitle": {
+    "description": "captchaSolveTitle"
+  },
+  "captchaSolveHint": "Finish the check in the browser below, then continue.",
+  "@captchaSolveHint": {
+    "description": "captchaSolveHint"
+  },
+  "captchaContinue": "Continue",
+  "@captchaContinue": {
+    "description": "captchaContinue"
+  },
+  "captchaStatusTitle": "What the browser is showing",
+  "@captchaStatusTitle": {
+    "description": "captchaStatusTitle"
+  },
+  "captchaStatusPage": "Page",
+  "@captchaStatusPage": {
+    "description": "captchaStatusPage"
+  },
+  "captchaStatusChallenge": "Challenge",
+  "@captchaStatusChallenge": {
+    "description": "captchaStatusChallenge"
+  },
+  "captchaStatusContent": "Content",
+  "@captchaStatusContent": {
+    "description": "captchaStatusContent"
+  },
+  "captchaStatusCookies": "Cookies",
+  "@captchaStatusCookies": {
+    "description": "captchaStatusCookies"
+  },
+  "captchaChallengeNone": "none seen",
+  "@captchaChallengeNone": {
+    "description": "captchaChallengeNone"
+  },
+  "captchaChallengeOnScreen": "ON SCREEN",
+  "@captchaChallengeOnScreen": {
+    "description": "captchaChallengeOnScreen"
+  },
+  "captchaChallengeUnknown": "page not loaded yet",
+  "@captchaChallengeUnknown": {
+    "description": "captchaChallengeUnknown"
+  },
+  "captchaContentEmpty": "empty",
+  "@captchaContentEmpty": {
+    "description": "captchaContentEmpty"
+  },
+  "captchaContentLoaded": "loaded",
+  "@captchaContentLoaded": {
+    "description": "captchaContentLoaded"
+  },
+  "webviewMissingTitle": "No embedded browser here",
+  "@webviewMissingTitle": {
+    "description": "webviewMissingTitle"
+  },
+  "webviewMissingBody": "This screen needs an in-app browser, which this platform does not have. A source behind a captcha check cannot be opened here.",
+  "@webviewMissingBody": {
+    "description": "webviewMissingBody"
+  },
+
+  "rsetDefaultsNote": "These are the defaults for a new title. A manga you have already configured keeps its own setting.",
+  "rsetDefaultMode": "Default mode",
+  "rsetDefaultModeSub": "How a chapter opens when you have not set one for this title",
+  "rsetModeStandard": "Standard",
+  "rsetModeRtl": "Right-to-left",
+  "rsetModeVertical": "Vertical",
+  "rsetModeWebtoon": "Webtoon",
+  "rsetScaleMode": "Scale mode",
+  "rsetScaleModeSub": "How a page fills the screen",
+  "rsetScaleFitCenter": "Fit center",
+  "rsetScaleFitHeight": "Fit to height",
+  "rsetScaleFitWidth": "Fit to width",
+  "rsetScaleKeepAtStart": "Keep at start",
+  "rsetSectionReading": "Reading",
+  "rsetSectionStrip": "Vertical & webtoon",
+  "rsetWebtoonZoomOut": "Default zoom out",
+  "rsetWebtoonZoomOutSub": "Narrows the strip so long panels are easier to read",
+  "rsetWebtoonGaps": "Gaps between pages",
+  "rsetWebtoonGapsSub": "Separate the panels so the seam between them is visible",
+  "rsetStripUnavailable": "Only used in the vertical and webtoon modes",
+  "rsetTwoPagesUnavailable": "Only used in the standard and right-to-left modes",
+  "rsetVolumeButtons": "Enable volume buttons",
+  "rsetVolumeButtonsSub": "Turn pages with the volume keys while a chapter is open",
+  "rsetVolumeButtonsUnavailable": "Not available on this device — iOS gives apps no way to read the volume buttons",
+  "rsetInvertNavigation": "Invert navigation control",
+  "rsetInvertNavigationSub": "Swipe and page the other way round",
+  "rsetReduceMemory": "Reduce memory consumption (beta)",
+  "rsetReduceMemorySub": "Cuts the page cache and preloads less ahead",
+  "rsetSectionEInk": "E-Ink",
+  "rsetSectionControls": "Controls",
+  "rsetFlashOnChange": "Flash on page change",
+  "rsetFlashOnChangeSub": "Clear the screen between pages to drop ghosting",
+  "rsetFlashDuration": "Flash duration",
+  "rsetFlashDurationSub": "How long the screen stays cleared",
+  "rsetFlashEvery": "Flash every",
+  "rsetFlashEverySub": "Clear the screen once every few pages instead of every page",
+  "rsetFlashEveryUnit": "{count, plural, =1{1 page} other{{count} pages}}",
+  "rsetFlashWith": "Flash with",
+  "rsetFlashWithSub": "Which colour the screen is cleared to",
+  "rsetFlashWhite": "White",
+  "rsetFlashBlack": "Black",
+  "rsetSectionDisplay": "Display",
+  "rsetFullscreen": "Fullscreen mode",
+  "rsetFullscreenSub": "Hide the system bars while you read",
+  "rsetOrientation": "Screen orientation",
+  "rsetOrientationSub": "Default keeps the reader the way you opened it",
+  "rsetOrientDefault": "Default",
+  "rsetOrientAutomatic": "Automatic",
+  "rsetOrientPortrait": "Portrait",
+  "rsetOrientLandscape": "Landscape",
+  "rsetKeepScreenOn": "Keep screen on",
+  "rsetKeepScreenOnSub": "Stop the display sleeping while a chapter is open",
+  "rsetShowInfoBar": "Show information bar in reader",
+  "rsetShowInfoBarSub": "Progress, battery and time over the page",
+  "rsetTransparentInfoBar": "Transparent reader information bar",
+  "rsetTransparentInfoBarSub": "Off puts a dark strip behind the text instead",
+  "rsetShowChapterPopup": "Show chapter change popup",
+  "rsetShowChapterPopupSub": "Say the chapter name when the page changes",
+  "rsetSectionPages": "Pages",
+  "rsetBackground": "Background",
+  "rsetBackgroundSub": "The colour behind the page",
+  "rsetBgDefault": "Default",
+  "rsetBgLight": "Light",
+  "rsetBgDark": "Dark",
+  "rsetBgWhite": "White",
+  "rsetBgBlack": "Black",
+  "rsetNumberedPages": "Numbered pages",
+  "rsetNumberedPagesSub": "Print the page counter onto the page itself",
+  "rsetPreload": "Preload pages",
+  "rsetPreloadSub": "Fetch pages ahead of the one you are reading",
+  "rsetPreloadAlways": "Always",
+  "rsetPreloadWifiOnly": "Only on Wi-Fi",
+  "rsetPreloadNever": "Never",
+  "rsetTwoPages": "Two pages in landscape",
+  "rsetTwoPagesSub": "Show a spread instead of a single page",
+  "rsetReset": "Reset reader settings",
+  "rsetResetSub": "Put every setting on this screen back to how it shipped",
+  "rsetResetTitle": "Reset reader settings?",
+  "rsetResetBody": "Every reader setting goes back to its default. Settings you have made on individual titles are not touched.",
+  "@rsetFlashEveryUnit": {"placeholders": {"count": {"type": "int"}}},
+
+  "settingsReaderActions": "Reader actions",
+  "ractMenuSubtitle": "What a tap does in each part of the page",
+  "ractMenuOverflow": "More",
+  "ractReset": "Reset",
+  "ractDisableAll": "Disable all",
+  "ractResetDone": "Reader actions reset",
+  "ractDisabledAll": "All reader actions disabled",
+  "ractTapAction": "Tap action",
+  "ractLongTapAction": "Long tap action",
+  "ractActionNone": "None",
+  "ractActionNextPage": "Next page",
+  "ractActionPrevPage": "Previous page",
+  "ractActionNextChapter": "Next chapter",
+  "ractActionPrevChapter": "Previous chapter",
+  "ractActionToggleUi": "Show/hide UI",
+  "ractActionShowMenu": "Show menu",
+
+  "welcomeTitle": "Welcome",
+  "welcomeIntro": "Yomou reads from community sources that each publish in their own languages and formats. Pick what you read and Explore, Search and Suggestions will favour it. Nothing here is permanent — you can change it later in Settings.",
+  "welcomeRestoreBackup": "Restore from backup",
+  "welcomeLoginSync": "Login to sync account",
+  "welcomeComingSoon": "Coming soon",
+  "welcomeLocalDirs": "Local manga directories",
+  "welcomeLanguages": "Languages",
+  "welcomeType": "Type",
+  "welcomeStart": "Start reading",
+  "backupRestoreDone": "Restored {count} items",
+  "@backupRestoreDone": {"placeholders": {"count": {"type": "int"}}},
+  "backupRestoreKeptNewer": "{count} kept — already further along on this device",
+  "@backupRestoreKeptNewer": {"placeholders": {"count": {"type": "int"}}},
+  "backupRestoreNone": "Nothing to restore in that file",
+  "settingsContentPreferences": "Content preferences",
+  "settingsContentPreferencesSubtitle": "The languages and formats you read",
+  "langEnglish": "English",
+  "langSpanish": "Spanish",
+  "langPortuguese": "Portuguese",
+  "langFrench": "French",
+  "langJapanese": "Japanese",
+  "langKorean": "Korean",
+  "langChinese": "Chinese",
+  "langArabic": "Arabic",
+  "langRussian": "Russian",
+  "langItalian": "Italian",
+  "langGerman": "German",
+  "langIndonesian": "Indonesian",
+  "formatManga": "Manga",
+  "formatManhwa": "Manhwa",
+  "formatManhua": "Manhua",
+  "formatNovel": "Novel"
+,
+  "presetsTitle": "Presets",
+  "presetsAllSources": "All sources",
+  "presetsMySources": "My sources",
+  "presetsManage": "Manage presets",
+  "presetsNew": "New preset",
+  "presetsEdit": "Edit preset",
+  "presetsDelete": "Delete preset",
+  "presetsDeleteConfirm": "Delete \"{name}\"?",
+  "@presetsDeleteConfirm": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "presetsRename": "Rename preset",
+  "presetsNameHint": "Preset name",
+  "presetsLanguages": "Languages",
+  "presetsCreateFromCurrent": "Save current selection",
+  "presetsEmpty": "No presets yet",
+  "presetsCancel": "Cancel",
+  "presetsSave": "Save",
+  "presetsDeleteAction": "Delete",
+  "presetsDefaultName": "My sources",
+  "whatsNewTitle": "What's new",
+  "whatsNewVersionTitle": "What's new in {version}",
+  "@whatsNewVersionTitle": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
+  "whatsNewGotIt": "Got it",
+  "changelogAdded": "Added",
+  "changelogChanged": "Changed",
+  "changelogFixed": "Fixed",
+  "changelogRemoved": "Removed",
+  "changelogDeprecated": "Deprecated",
+  "changelogSecurity": "Security",
+  "changelogPerformance": "Performance",
+  "settingsReset": "Reset",
+  "settingsResetSubtitle": "Reset settings or erase everything",
+  "settingsResetSettingsSection": "Reset settings",
+  "settingsResetSettingsSubtitle": "Restore the areas you pick to their defaults. Your library, history and downloads are kept.",
+  "settingsGroupAppearance": "Appearance",
+  "settingsGroupContent": "Content preferences & presets",
+  "settingsGroupReader": "Reader",
+  "settingsGroupNotifications": "Notifications",
+  "settingsGroupStorage": "Storage & downloads",
+  "settingsGroupSources": "Sources",
+  "settingsGroupReading": "Reading",
+  "settingsGroupFinding": "Finding manga",
+  "settingsGroupData": "Your data",
+  "settingsGroupApp": "App",
+  "settingsResetSelected": "Reset selected",
+  "settingsResetCancel": "Cancel",
+  "settingsResetConfirmTitle": "Reset selected settings?",
+  "settingsResetConfirmBody": "These settings go back to their defaults. This can't be undone.",
+  "settingsEraseSection": "Erase all data",
+  "settingsEraseSubtitle": "Delete your library, history, downloads and every setting. The app comes back exactly like a fresh install.",
+  "settingsEraseTitle": "Erase all data",
+  "settingsEraseConfirmTitle": "Erase all data?",
+  "settingsEraseConfirmBody": "This permanently deletes your favorites, history, downloads and settings. Type {word} to confirm.",
+  "@settingsEraseConfirmBody": {
+    "placeholders": {
+      "word": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsEraseConfirmHint": "Type {word}",
+  "@settingsEraseConfirmHint": {
+    "placeholders": {
+      "word": {
+        "type": "String"
+      }
+    }
+  },
+  "settingsEraseButton": "Erase everything",
+  "privacyPolicy": "Privacy policy",
+  "privacyPolicySubtitle": "How Yomou handles your data",
+  "termsOfService": "Terms of service",
+  "termsOfServiceSubtitle": "Terms of use for Yomou",
+  "privacyPolicyBody": "Yomou is a manga reader. It stores your library, reading progress, favorites, bookmarks and settings locally on your device. Yomou does not collect personal data, run analytics, or include advertising.\n\nNetwork requests are made only to the manga sources you choose and to optional services you enable (cloud backup, update checks). Source requests use the source's own endpoints.\n\nOptional cloud backup (Google Drive / WebDAV) uploads an encrypted or plain backup of your library to a location you choose; Yomou never reads or transmits anything else. You can disable or delete these at any time.\n\nYou can export or erase all your data from Settings → Reset. Uninstalling the app removes all locally stored data.\n\nContact: see the project repository for support.",
+  "termsOfServiceBody": "By using Yomou you agree to these terms.\n\nYomou is provided as-is, without warranty. It is a reader for manga hosted by third-party sources; you are responsible for the content you access and for complying with the terms of those sources and applicable law.\n\nYomou does not host, distribute or modify manga content. Cloud backup and sync features are optional and use your own storage (Google Drive / WebDAV); you are responsible for that storage.\n\nYou may export or delete your data at any time. The app may be updated to add or change features.\n\nFor questions, see the project repository."
+}

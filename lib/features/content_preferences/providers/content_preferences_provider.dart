@@ -1,0 +1,266 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:yomou/features/content_preferences/providers/source_presets_provider.dart';
+
+/// Set once the welcome sheet has been completed.
+///
+/// Read on the first build to decide whether the sheet is presented at all, so
+/// it stays a plain pref rather than living behind the async load of a
+/// settings provider -- the sheet has to be decided before the home screen's
+/// first frame, and waiting on a provider that is still loading would show the
+/// home screen and then pop the welcome over it a beat later.
+const String kWelcomeCompletedKey = 'onboarding.welcomeCompleted';
+
+const String _languagesKey = 'onboarding.languages';
+const String _formatsKey = 'onboarding.formats';
+
+/// Formats a source row is allowed to declare.
+///
+/// These are the words the source registry already uses in its `language` tag
+/// list -- a row reads `'Manga, Manhwa, Manhua, English'`, where the first
+/// words are the formats the site publishes and the last is the scanlation
+/// language. Keeping the vocabulary in step with that list is what makes the
+/// "Type" section a real filter instead of a label with nothing behind it.
+const List<String> kContentFormats = ['Manga', 'Manhwa', 'Manhua', 'Novel'];
+
+/// Languages offered by the welcome sheet and the preset editor, in display
+/// order: the languages readers reach for most, then the rest the registry
+/// declares in alphabetical order.
+///
+/// This is the single language vocabulary. [acceptsSourceRow] recognises
+/// exactly these names, so every language a source can be hidden for is one
+/// the reader can also pick back. A separate "known languages" set used to be
+/// wider than the picker's list, which let a source declare a language the
+/// filter understood but the picker never offered -- hidden and unselectable
+/// at the same time.
+const List<String> kContentLanguages = [
+  'English',
+  'Spanish',
+  'Portuguese',
+  'French',
+  'Japanese',
+  'Korean',
+  'Chinese',
+  'Arabic',
+  'Russian',
+  'Italian',
+  'German',
+  'Indonesian',
+  'Albanian',
+  'Bengali',
+  'Bulgarian',
+  'Catalan',
+  'Czech',
+  'Danish',
+  'Dutch',
+  'Finnish',
+  'Greek',
+  'Hebrew',
+  'Hindi',
+  'Hungarian',
+  'Icelandic',
+  'Kannada',
+  'Malay',
+  'Malayalam',
+  'Nepali',
+  'Norwegian',
+  'Persian',
+  'Polish',
+  'Romanian',
+  'Serbian',
+  'Slovak',
+  'Slovenian',
+  'Swedish',
+  'Tamil',
+  'Thai',
+  'Turkish',
+  'Ukrainian',
+  'Vietnamese',
+];
+
+/// Lowercase forms of [kContentLanguages], the tags a source row's `language`
+/// string is matched against. Being derived is the point: the set the filter
+/// hides on cannot drift from the set the picker offers.
+final Set<String> _contentLanguageTags =
+    kContentLanguages.map((l) => l.toLowerCase()).toSet();
+
+final Set<String> _formatTags =
+    kContentFormats.map((f) => f.toLowerCase()).toSet();
+
+/// The reader's content preferences: which languages they read and which
+/// formats they care about.
+///
+/// Empty selections mean "no preference" and filter nothing, so the sheet can
+/// never lock a reader out of a source by accident.
+class ContentPreferences {
+  const ContentPreferences({
+    this.languages = const {},
+    this.formats = const {},
+  });
+
+  final Set<String> languages;
+  final Set<String> formats;
+
+  ContentPreferences copyWith({
+    Set<String>? languages,
+    Set<String>? formats,
+  }) {
+    return ContentPreferences(
+      languages: languages ?? this.languages,
+      formats: formats ?? this.formats,
+    );
+  }
+
+  /// Whether a source row survives these preferences.
+  bool accepts(Map<String, dynamic> row) => acceptsSourceRow(row, this);
+}
+
+/// Splits a source row's `language` string into its lowercase tag set.
+///
+/// Rows that carry no `language` key at all come back empty.
+Set<String> languageTagsOf(Map<String, dynamic> row) {
+  final raw = row['language'];
+  if (raw is! String || raw.trim().isEmpty) return const {};
+  return raw
+      .split(',')
+      .map((t) => t.trim().toLowerCase())
+      .where((t) => t.isNotEmpty)
+      .toSet();
+}
+
+/// Whether [row] belongs to a reader with these [prefs].
+///
+/// A row is hidden only when it positively contradicts the choice:
+/// - it declares formats and none of them were picked, or
+/// - it declares languages and none of them were picked.
+///
+/// Rows that declare neither (self-hosted servers, and rows written before
+/// either field existed) always pass.
+bool acceptsSourceRow(Map<String, dynamic> row, ContentPreferences prefs) {
+  // Selections are stored in display casing ("Portuguese (BR)") and the tags
+  // off a source row are lowercased, so both sides meet in lowercase. Comparing
+  // them as-stored matches nothing at all, which reads as "the filter is
+  // broken" rather than as an obvious case bug.
+  final wantedFormats = prefs.formats.map((f) => f.toLowerCase()).toSet();
+  final wantedLanguages = prefs.languages.map((l) => l.toLowerCase()).toSet();
+
+  final tags = languageTagsOf(row);
+  final rowFormats = tags.where(_formatTags.contains).toSet();
+  final rowLanguages = tags.difference(rowFormats);
+
+  if (wantedFormats.isNotEmpty &&
+      rowFormats.isNotEmpty &&
+      !rowFormats.any(wantedFormats.contains)) {
+    return false;
+  }
+
+  if (wantedLanguages.isNotEmpty && rowLanguages.isNotEmpty) {
+    // Only rows naming a language we recognise are filtered. Anything else is
+    // declaring something this filter does not understand, and guessing it
+    // away would hide sources for no reason the reader can see.
+    if (!rowLanguages.any(
+      (tag) => languageTagMatches(tag, _contentLanguageTags),
+    )) {
+      return true;
+    }
+    if (!rowLanguages.any((tag) => languageTagMatches(tag, wantedLanguages))) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/// Whether a source row's language tag is covered by [wanted].
+///
+/// Handles the parenthetical spellings the registry uses for regional
+/// variants: `"portuguese (br)"` is still Portuguese, and reading it as an
+/// unrecognised language would both hide it from a Portuguese reader and let
+/// it through every filter as a wildcard.
+bool languageTagMatches(String tag, Set<String> wanted) {
+  if (wanted.contains(tag)) return true;
+  final paren = tag.indexOf(' (');
+  return paren > 0 && wanted.contains(tag.substring(0, paren));
+}
+
+/// Whether the welcome sheet has already been completed on this install.
+Future<bool> isWelcomeCompleted() async {
+  final prefs = await SharedPreferences.getInstance();
+  return prefs.getBool(kWelcomeCompletedKey) ?? false;
+}
+
+/// Records the welcome sheet as done so it is never shown again.
+Future<void> markWelcomeCompleted() async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setBool(kWelcomeCompletedKey, true);
+}
+
+class ContentPreferencesNotifier extends StateNotifier<ContentPreferences> {
+  ContentPreferencesNotifier(this._ref) : super(const ContentPreferences()) {
+    loaded = _load();
+  }
+
+  final Ref _ref;
+
+  /// Completes once the saved selection has been read from prefs.
+  ///
+  /// The state starts empty and fills in asynchronously; a caller that needs
+  /// the real selection rather than "not loaded yet" (the Tachiyomi rescue,
+  /// which must not fall back to every language) waits on this first.
+  late final Future<void> loaded;
+
+  Future<void> _load() async {
+    final p = await SharedPreferences.getInstance();
+    state = ContentPreferences(
+      languages: (p.getStringList(_languagesKey) ?? const []).toSet(),
+      formats: (p.getStringList(_formatsKey) ?? const []).toSet(),
+    );
+  }
+
+  /// Adds or removes [value] from the language selection and persists it.
+  ///
+  /// Applied immediately rather than on save: the same editor backs both the
+  /// welcome sheet and the settings screen, and a picker that only commits on
+  /// a button press would silently drop its changes when the settings route
+  /// underneath it is popped.
+  void toggleLanguage(String value) => _toggle(state.languages, value, true);
+
+  void toggleFormat(String value) => _toggle(state.formats, value, false);
+
+  /// Replaces the entire language selection with [languages].
+  void setLanguages(Set<String> languages) {
+    state = state.copyWith(languages: {...languages});
+    _persist();
+  }
+
+  void _toggle(Set<String> current, String value, bool isLanguage) {
+    final next = {...current};
+    if (!next.remove(value)) next.add(value);
+    state = isLanguage
+        ? state.copyWith(languages: next)
+        : state.copyWith(formats: next);
+    _persist();
+  }
+
+  /// Persists the selection and folds it into the active preset.
+  ///
+  /// The preset sync happens before the first `await` on purpose: it runs
+  /// synchronously on the notifier's live state, while reading `state` or the
+  /// preset notifier after an await could race a dispose.
+  Future<void> _persist() async {
+    _ref
+        .read(sourcePresetsProvider.notifier)
+        .syncLanguages({...state.languages});
+    final languages = state.languages.toList();
+    final formats = state.formats.toList();
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_languagesKey, languages);
+    await p.setStringList(_formatsKey, formats);
+  }
+}
+
+final contentPreferencesProvider =
+    StateNotifierProvider<ContentPreferencesNotifier, ContentPreferences>(
+      (ref) => ContentPreferencesNotifier(ref),
+    );

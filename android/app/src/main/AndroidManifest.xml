@@ -1,0 +1,128 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <!-- New-chapter notifications. Runtime-requested on Android 13+; ignored
+         below that, where notifications are allowed by default. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Saving a cover into the shared gallery. Android 10+ writes through
+         MediaStore and needs no permission, so this is capped there. -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
+    <application
+        android:label="Yomou"
+        android:name="${applicationName}"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <!-- Specifies an Android theme to apply to this Activity as soon as
+                 the Android process has started. This theme is visible to the user
+                 while the Flutter UI initializes. After that, this theme continues
+                 to determine the Window background behind the Flutter UI. -->
+            <meta-data
+              android:name="io.flutter.embedding.android.NormalTheme"
+              android:resource="@style/NormalTheme"
+              />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            <!-- yomou:// links shared from the manga share sheet: this filter
+                 is what makes Yomou appear in the system "open with" chooser
+                 when such a link is tapped elsewhere (WhatsApp, a browser, ...). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="yomou"/>
+            </intent-filter>
+        </activity>
+        <!-- Alternate (light) launcher icon. Disabled by default; rotated in
+             from the appearance settings via the FlutterDynamicIcon channel.
+             targetActivity points back to MainActivity so the app still runs. -->
+        <activity-alias
+            android:name=".AliasLight"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_light"
+            android:roundIcon="@mipmap/ic_launcher_light"
+            android:label="Yomou"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <!-- Don't delete the meta-data below.
+             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+        <receiver
+            android:name=".MangaDeckWidgetReceiver"
+            android:exported="true"
+            android:label="@string/appwidget_recent_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/manga_deck_widget_info" />
+        </receiver>
+        <activity
+            android:name=".MangaDeckWidgetConfigActivity"
+            android:exported="true"
+            android:label="@string/appwidget_recent_label"
+            android:theme="@style/WidgetConfigTheme">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <service
+            android:name=".MangaDeckWidgetService"
+            android:permission="android.permission.BIND_REMOTEVIEWS"
+            android:exported="false" />
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+        <!-- The Android WebView registers a barcode/text shape detector as it
+             starts, and that registration reads this Play Services version
+             tag from the host app's manifest. Without it the WebView throws a
+             fatal GooglePlayServicesMissingManifestValueException on its GPU
+             thread and takes the whole process down with it. That happens
+             wherever the WebView's bundled shape-detection code runs, which
+             includes AOSP builds with no Google Play Services installed at
+             all, so the tag cannot be left to a Play Services dependency to
+             merge in. The value is the current google_play_services_version
+             (12.4.51); no Play Services code is shipped or used. -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="12451000"
+            tools:replace="android:value" />
+
+        <!-- The notification plugin's action buttons (download Pause/Cancel)
+             send their taps to this receiver via an explicit-component
+             PendingIntent; the plugin README requires the app to declare it,
+             and a missing declaration silently no-ops every press. -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
+    </application>
+    <!-- Required to query activities that can process text, see:
+         https://developer.android.com/training/package-visibility and
+         https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
+
+         In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+    </queries>
+</manifest>

@@ -1,0 +1,1193 @@
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yomou/core/theme/amoled.dart';
+import 'package:yomou/widgets/cached_manga_image.dart';
+import 'package:yomou/widgets/manga_hero.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
+import 'package:yomou/data/models/manga.dart';
+import 'package:yomou/core/database/source_cache.dart';
+import 'package:yomou/data/providers/sources_provider.dart';
+import 'package:yomou/features/library/providers/favorites_provider.dart';
+import 'package:yomou/features/library/widgets/downloaded_badge.dart';
+import 'package:yomou/features/library/widgets/favorite_badge.dart';
+import 'package:yomou/features/suggestions/providers/suggestions_provider.dart';
+import 'package:yomou/core/share.dart';
+import 'package:yomou/core/database/database_helper.dart';
+import 'package:yomou/core/widgets/ios/ios_press.dart';
+import 'package:yomou/widgets/material_symbol.dart';
+import 'package:yomou/core/theme/layout.dart';
+import 'package:yomou/core/widgets/ios/ios_nav_bar.dart';
+import 'package:yomou/features/library/screens/manga_detail_screen.dart';
+import 'package:yomou/core/providers/incognito_provider.dart';
+import 'package:yomou/core/providers/selection_provider.dart';
+import 'package:yomou/core/widgets/empty_state.dart';
+import 'package:yomou/core/widgets/tab_header.dart';
+import 'package:yomou/core/widgets/responsive.dart' show usesWideLayout;
+import 'package:yomou/core/widgets/ios/ios_menu.dart';
+import 'package:yomou/core/widgets/ios/ios_sheet.dart';
+import 'package:yomou/core/widgets/ios/ios_toast.dart';
+import 'package:yomou/core/widgets/manga_grid_metrics.dart';
+import 'package:yomou/l10n/generated/app_localizations.dart';
+import 'package:yomou/core/widgets/search_bar.dart';
+import 'package:yomou/features/settings/providers/cache_settings_provider.dart';
+import 'package:yomou/features/settings/providers/appearance_provider.dart';
+import 'package:yomou/features/settings/screens/settings_screen.dart';
+import 'package:yomou/widgets/m3_components.dart';
+
+class SuggestionsScreen extends ConsumerStatefulWidget {
+  const SuggestionsScreen({super.key});
+
+  @override
+  ConsumerState<SuggestionsScreen> createState() => _SuggestionsScreenState();
+}
+
+class _SuggestionsScreenState extends ConsumerState<SuggestionsScreen> {
+  String? _selectedGenre; // null: personalised, non-null: filter by genre
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
+  bool _refreshing = false;
+
+  final Set<String> _selectedMangaIds = {};
+  bool get _isSelecting => _selectedMangaIds.isNotEmpty;
+
+  String _listMode = 'Grid';
+
+  /// The cover size the reader chose, as a percentage of a normal cell, from
+  /// the one preference every manga grid shares. 100 is the design size.
+  double _gridSize = kMangaGridSizeDefault;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPreferences();
+  }
+
+  Future<void> _loadPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _listMode = prefs.getString('suggestions_list_mode') ?? 'Grid';
+    });
+  }
+
+  Future<void> _savePreference(String key, dynamic value) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (value is String) {
+      await prefs.setString(key, value);
+    } else if (value is double) {
+      await prefs.setDouble(key, value);
+    } else if (value is bool) {
+      await prefs.setBool(key, value);
+    }
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  /// Re-fetches suggestions (and the genre chip list) across every active
+  /// source, forcing the disk cache to be bypassed so the user always sees
+  /// fresh results.
+  Future<void> _refresh() async {
+    if (_refreshing) return;
+    _refreshing = true;
+
+    final sources = sourcesFromRows(ref.read(visibleSourceRowsProvider));
+    for (final source in sources) {
+      SourceCache.invalidatePrefix('${source.id}/list/');
+      SourceCache.invalidatePrefix('${source.id}/tags');
+    }
+    ref.invalidate(genreTagsProvider);
+    ref.invalidate(suggestionsProvider(_selectedGenre));
+    try {
+      await ref.read(suggestionsProvider(_selectedGenre).future);
+    } catch (_) {}
+    _refreshing = false;
+  }
+
+  void _enterSelection(String mangaId) {
+    setState(() => _selectedMangaIds.add(mangaId));
+    ref.read(selectionActiveProvider.notifier).state = true;
+  }
+
+  void _toggleSelect(String mangaId) {
+    setState(() {
+      if (!_selectedMangaIds.remove(mangaId)) {
+        _selectedMangaIds.add(mangaId);
+      }
+    });
+    ref.read(selectionActiveProvider.notifier).state = _selectedMangaIds.isNotEmpty;
+  }
+
+  void _exitSelection() {
+    if (!_isSelecting) return;
+    setState(_selectedMangaIds.clear);
+    ref.read(selectionActiveProvider.notifier).state = false;
+  }
+
+  void _toggleSelectAll(List<Manga> items) {
+    final ids = items.map((m) => m.id).toList();
+    setState(() {
+      if (ids.isNotEmpty && ids.every(_selectedMangaIds.contains)) {
+        _selectedMangaIds.clear();
+      } else {
+        _selectedMangaIds.addAll(ids);
+      }
+    });
+    ref.read(selectionActiveProvider.notifier).state = _selectedMangaIds.isNotEmpty;
+  }
+
+  Future<void> _shareSelected(List<Manga> allManga) async {
+    final ids = _selectedMangaIds;
+    if (ids.isEmpty) return;
+    final buffer = StringBuffer();
+    for (final manga in allManga) {
+      if (!ids.contains(manga.id)) continue;
+      final source = getSourceBySourceId(manga.sourceId);
+      final siteUrl = source == null ? '' : source.websiteMangaUrl(manga.id);
+      if (buffer.isNotEmpty) buffer.write('\n\n');
+      buffer.write(manga.title);
+      if (siteUrl.isNotEmpty) {
+        buffer.write('\n');
+        buffer.write(siteUrl);
+      }
+    }
+    if (buffer.isEmpty) return;
+    await shareText(buffer.toString());
+  }
+
+  Future<void> _favoriteSelected(List<Manga> allManga) async {
+    final ids = _selectedMangaIds.toList();
+    if (ids.isEmpty) return;
+    for (final manga in allManga) {
+      if (!ids.contains(manga.id)) continue;
+      await DatabaseHelper.instance.setFavorite(
+        mangaId: manga.id,
+        title: manga.title,
+        coverUrl: manga.coverUrl,
+        sourceId: manga.sourceId,
+        isFavorite: true,
+      );
+    }
+    if (!mounted) return;
+    setState(_selectedMangaIds.clear);
+    bumpFavoritesRevision(ref);
+    final l = AppLocalizations.of(context);
+    showIosToast(
+      context,
+      message: l.historyFavoritedCount(ids.length),
+      duration: const Duration(seconds: 2),
+    );
+  }
+
+  Widget _buildSelectionBar(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context);
+    final barBg = Color.alphaBlend(
+      cs.primary.withValues(alpha: 0.08),
+      cs.surface,
+    );
+    final fg = cs.onSurface;
+    final actionFg = cs.onSurface.withValues(alpha: 0.6);
+    final showLabels = MediaQuery.of(context).size.width > 600;
+    final wide = MediaQuery.of(context).size.width >= 900;
+
+    Widget navAction(Widget icon, VoidCallback onTap, {String? label}) {
+      return Center(
+        child: AppPress(
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: showLabels && label != null
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      icon,
+                      const SizedBox(width: 6),
+                      Text(
+                        label.toUpperCase(),
+                        style: TextStyle(
+                          color: actionFg,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                    ],
+                  )
+                : icon,
+          ),
+        ),
+      );
+    }
+
+    final suggestionsAsync = ref.read(suggestionsProvider(_selectedGenre));
+    final allManga = suggestionsAsync.valueOrNull ?? const <Manga>[];
+
+    final actions = <Widget>[
+      navAction(
+        Icon(MdiIcons.shareVariant, color: actionFg, size: 22),
+        () => _shareSelected(allManga),
+        label: l.share,
+      ),
+      navAction(
+        Icon(MdiIcons.heartOutline, color: actionFg, size: 22),
+        () => _favoriteSelected(allManga),
+        label: l.favorite,
+      ),
+    ];
+
+    if (wide) {
+      actions.add(
+        navAction(
+          MaterialSymbol(
+            MaterialSymbol.selectAll,
+            color: actionFg,
+            size: 22,
+          ),
+          () => _toggleSelectAll(allManga),
+          label: l.selectAll,
+        ),
+      );
+    } else {
+      actions.add(
+        navAction(
+          Icon(MdiIcons.dotsVertical, color: actionFg, size: 22),
+          () => _showSelectionActions(context, allManga),
+        ),
+      );
+    }
+
+    return Container(
+      color: barBg,
+      padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
+      child: IosNavBar(
+        showBack: false,
+        flat: true,
+        safeArea: false,
+        height: 64,
+        leading: navAction(
+          Icon(MdiIcons.close, color: actionFg, size: 22),
+          _exitSelection,
+        ),
+        titleWidget: Text(
+          '${_selectedMangaIds.length}',
+          style: TextStyle(
+            color: fg,
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        actions: actions,
+      ),
+    );
+  }
+
+  void _showSelectionActions(BuildContext context, List<Manga> allManga) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final fg = dark ? Colors.white : const Color(0xFF1C1B1F);
+    final l = AppLocalizations.of(context);
+
+    showIosSheet(
+      context,
+      builder: (sheetContext) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 6, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildSheetRow(
+                icon: MdiIcons.selectAll,
+                label: l.selectAll,
+                color: fg,
+                onTap: () {
+                  Navigator.pop(context);
+                  _toggleSelectAll(allManga);
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSheetRow({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return AppPress(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(width: 16),
+            Text(
+              label,
+              style: TextStyle(
+                color: color,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _gridSize = ref.watch(appearanceSettingsProvider).gridSize;
+    // Passing _selectedGenre as the family key; provider re-fetches when it changes.
+    final suggestionsAsync = ref.watch(suggestionsProvider(_selectedGenre));
+    final genreTagsAsync = ref.watch(genreTagsProvider);
+
+    return Scaffold(
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        color: Theme.of(context).colorScheme.primary,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        child: TabHeader(
+          mode: usesWideLayout(context)
+              ? TabHeaderMode.fixed
+              : TabHeaderMode.collapsing,
+          title: AppLocalizations.of(context).suggestions,
+          leading: _isSelecting ? _buildSelectionBar(context) : null,
+          searchBar: _isSelecting ? const SizedBox.shrink() : _buildSearchBar(),
+          body: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 12),
+                    genreTagsAsync.when(
+                      data: (tags) => tags.isNotEmpty
+                          ? _buildGenreChips(tags)
+                          : const SizedBox.shrink(),
+                      loading: () => const SizedBox.shrink(),
+                      error: (_, _) => const SizedBox.shrink(),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+              suggestionsAsync.when(
+                data: (mangaList) => _buildMangaList(mangaList),
+                loading: () => SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
+                error: (e, _) => SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Center(
+                      child: Text(
+                        AppLocalizations.of(context).failedToLoadSuggestions,
+                        style: TextStyle(
+                          color:
+                              Theme.of(context).brightness == Brightness.dark
+                                  ? Colors.white54
+                                  : const Color(0xFF49454F),
+                          fontSize: 16,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SliverPadding(
+                padding: EdgeInsets.only(bottom: bottomBarClearance(context)),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return YomouSearchBar.text(
+      hintText: AppLocalizations.of(context).searchManga,
+      controller: _searchController,
+      onChanged: (value) {
+        setState(() {
+          _searchQuery = value;
+        });
+      },
+      clearVisible: _searchQuery.isNotEmpty,
+      onClear: () {
+        _searchController.clear();
+        setState(() {
+          _searchQuery = '';
+        });
+      },
+      trailing: AppSheetPress(
+        onTap: _showMenu,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Icon(
+            MdiIcons.dotsVertical,
+            color: dark ? Colors.white70 : Colors.black54,
+            size: 22,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showMenu() async {
+    final action = await showIosMenuPanel<String>(
+      context,
+      children: [
+        IosMenuRow(
+          icon: MdiIcons.formatListBulleted,
+          label: AppLocalizations.of(context).historyListOptions,
+          onTap: () => Navigator.pop(context, 'listOptions'),
+        ),
+        const IosMenuDivider(),
+        IosMenuRow(
+          icon: MdiIcons.refresh,
+          label: AppLocalizations.of(context).refresh,
+          onTap: () => Navigator.pop(context, 'update'),
+        ),
+        const IosMenuDivider(),
+        IosMenuRow(
+          icon: MdiIcons.clockOutline,
+          label: AppLocalizations.of(context).suggestionsRefresh,
+          onTap: () => Navigator.pop(context, 'refreshInterval'),
+        ),
+        const IosMenuDivider(),
+        Consumer(
+          builder: (context, ref, _) => MenuToggleRow(
+            label: AppLocalizations.of(context).incognitoMode,
+            value: ref.watch(incognitoProvider),
+            onChanged: (v) => ref.read(incognitoProvider.notifier).set(v),
+          ),
+        ),
+        const IosMenuDivider(),
+        IosMenuRow(
+          icon: MdiIcons.cogOutline,
+          label: AppLocalizations.of(context).settings,
+          onTap: () => Navigator.pop(context, 'settings'),
+        ),
+      ],
+    );
+    if (!mounted || action == null) return;
+    if (action == 'listOptions') {
+      _showListOptionsSheet();
+    } else if (action == 'update') {
+      await _refresh();
+      if (mounted) {
+        showIosToast(
+          context,
+          message: AppLocalizations.of(context).refreshed,
+        );
+      }
+    } else if (action == 'settings') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const SettingsScreen()),
+      );
+    } else if (action == 'refreshInterval') {
+      await _pickRefreshInterval();
+    }
+  }
+
+  static const _refreshIntervalMinutes = <int>[
+    60,
+    180,
+    360,
+    720,
+    1440,
+    2880,
+    5760,
+    10080,
+  ];
+
+  String _refreshIntervalLabel(int minutes, AppLocalizations l) {
+    return switch (minutes) {
+      60 => l.refreshEveryHour,
+      180 => l.refreshEvery3Hours,
+      360 => l.refreshEvery6Hours,
+      720 => l.refreshEvery12Hours,
+      1440 => l.refreshDaily,
+      2880 => l.refreshEvery2Days,
+      5760 => l.refreshEvery4Days,
+      _ => l.refreshWeekly,
+    };
+  }
+
+  Future<void> _pickRefreshInterval() async {
+    final l = AppLocalizations.of(context);
+    final current = ref.read(suggestionsRefreshMinutesProvider);
+    final chosen = await showM3OptionSheet<int>(
+      context,
+      title: l.suggestionsRefreshTitle,
+      options: [
+        for (final minutes in _refreshIntervalMinutes)
+          (minutes, _refreshIntervalLabel(minutes, l)),
+      ],
+      selected: current,
+    );
+    if (chosen == null) return;
+    await ref
+        .read(cacheSettingsProvider.notifier)
+        .setSuggestionsRefreshMinutes(chosen);
+  }
+
+  Future<void> _showListOptionsSheet() async {
+    await showIosSheet(
+      context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final dark = Theme.of(context).brightness == Brightness.dark;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    AppLocalizations.of(context).historyListMode,
+                    style: TextStyle(
+                      color: dark ? Colors.white70 : const Color(0xFF49454F),
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    height: 52,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(26),
+                      border: Border.all(
+                        color: dark ? Colors.white24 : Colors.black12,
+                        width: 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        _buildSegmentTab(
+                          'Compact',
+                          MdiIcons.formatListBulleted,
+                          setSheetState,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildSegmentTab(
+                          'Details',
+                          MdiIcons.viewListOutline,
+                          setSheetState,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildSegmentTab(
+                          'Grid',
+                          MdiIcons.viewGridOutline,
+                          setSheetState,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_listMode == 'Grid') ...[
+                    const SizedBox(height: 24),
+                    Text(
+                      AppLocalizations.of(
+                        context,
+                      ).appearanceGridSize(_gridSize.round()),
+                      style: TextStyle(
+                        color: dark ? Colors.white70 : const Color(0xFF49454F),
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Slider(
+                      // Left to right is small to large, which is what a size
+                      // control reads as: dragging right grows every cover and
+                      // the grid drops a column to make room. The old slider
+                      // pointed the same way -- it counted columns backwards
+                      // from the far end, so a higher thumb meant fewer,
+                      // larger covers either way.
+                      //
+                      // Always live: the size is the reader's on a wide window
+                      // too, so a tablet can be made coarser or denser instead
+                      // of being handed the derived count.
+                      value: _gridSize,
+                      min: kMangaGridSizeMin.toDouble(),
+                      max: kMangaGridSizeMax.toDouble(),
+                      divisions: kMangaGridSizeDivisions,
+                      onChanged: (value) {
+                        setSheetState(() {
+                          _gridSize = value;
+                        });
+                        setState(() {});
+                        // One size for every manga grid.
+                        ref
+                            .read(appearanceSettingsProvider.notifier)
+                            .setGridSize(value);
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _modeLabel(BuildContext context, String mode) {
+    final l = AppLocalizations.of(context);
+    return switch (mode) {
+      'Compact' => l.historyCompactMode,
+      'Details' => l.historyDetailsMode,
+      _ => l.listModeGrid,
+    };
+  }
+
+  Widget _buildSegmentTab(
+    String mode,
+    IconData icon,
+    StateSetter setSheetState,
+  ) {
+    final isSelected = _listMode == mode;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final selectedBg = dark
+        ? const Color(0xFF6B6F76)
+        : Theme.of(context).colorScheme.primary;
+    final fg = isSelected
+        ? Colors.white
+        : (dark ? Colors.white : const Color(0xFF1C1B1F));
+    return Expanded(
+      child: GestureDetector(
+        onTap: () {
+          setSheetState(() => _listMode = mode);
+          setState(() {});
+          _savePreference('suggestions_list_mode', mode);
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: isSelected ? selectedBg : Colors.transparent,
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: fg, size: 20),
+              const SizedBox(height: 2),
+              Text(
+                _modeLabel(context, mode),
+                style: TextStyle(
+                  color: fg,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGenreChips(List<String> tags) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final primary = Theme.of(context).colorScheme.primary;
+    return SizedBox(
+      height: 34,
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: tags.length,
+        itemBuilder: (context, index) {
+          final tag = tags[index];
+          final isSelected = _selectedGenre == tag;
+
+          final Color bg = isSelected
+              ? (dark ? Colors.white : primary)
+              : Colors.transparent;
+          final Color fg = dark
+              ? (isSelected ? Colors.black : Colors.white)
+              : (isSelected ? Colors.white : const Color(0xFF334155));
+
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: GestureDetector(
+              onTap: () {
+                setState(() {
+                  _selectedGenre = isSelected ? null : tag;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isSelected
+                        ? (dark ? Colors.white : primary)
+                        : (dark ? Colors.white38 : Colors.black38),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(MdiIcons.tagOutline, size: 16, color: fg),
+                    const SizedBox(width: 4),
+                    Text(
+                      tag,
+                      style: TextStyle(
+                        color: fg,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildMangaList(List<Manga> allManga) {
+    final items = allManga.where((m) {
+      return _searchQuery.isEmpty ||
+          m.title.toLowerCase().contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    if (items.isEmpty) {
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
+          child: EmptyState(
+            icon: MdiIcons.lightbulbOutline,
+            title: AppLocalizations.of(context).suggestionsNoResults,
+            subtitle: _selectedGenre != null
+                ? AppLocalizations.of(context).suggestionsNoGenreResults
+                : AppLocalizations.of(context).tryDifferentSearch,
+          ),
+        ),
+      );
+    }
+
+    return switch (_listMode) {
+      'Compact' => _buildCompactList(context, items),
+      'Details' => _buildDetailsList(context, items),
+      _ => _buildMangaGrid(items),
+    };
+  }
+
+  Widget _buildCompactList(BuildContext context, List<Manga> items) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverList.separated(
+        itemCount: items.length,
+        separatorBuilder: (context, index) => const SizedBox(height: 1),
+        itemBuilder: (context, index) {
+          final manga = items[index];
+          return ListTile(
+            contentPadding: const EdgeInsets.symmetric(vertical: 4),
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(6),
+                border: Theme.of(context).brightness == Brightness.dark
+                    ? null
+                    : Border.all(color: Colors.black12),
+              ),
+              child: CachedMangaImage(
+                imageUrl: manga.coverUrl,
+                width: 40,
+                height: 56,
+                fit: BoxFit.cover,
+              ),
+            ),
+          ),
+          title: Text(
+            manga.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: onSurface,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          subtitle: Text(
+            _sourceLabel(manga.sourceId),
+            style: TextStyle(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.white54
+                  : const Color(0xFF49454F),
+              fontSize: 12,
+            ),
+          ),
+          trailing: DownloadedMangaBadge(mangaId: manga.id),
+          onTap: () => _openManga(manga),
+        );
+      },
+      ),
+    );
+  }
+
+  Widget _buildDetailsList(BuildContext context, List<Manga> items) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverList.builder(
+        itemCount: items.length,
+        itemBuilder: (context, index) {
+        final manga = items[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: dark ? amoled(context, 0xFF1E1E20) : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: dark
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: () => _openManga(manga),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: CachedMangaImage(
+                      imageUrl: manga.coverUrl,
+                      width: 60,
+                      height: 85,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          manga.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: onSurface,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _sourceLabel(manga.sourceId),
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white70
+                                : const Color(0xFF49454F),
+                            fontSize: 13,
+                          ),
+                        ),
+                        if (manga.description != null &&
+                            manga.description!.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            manga.description!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: dark
+                                  ? Colors.white54
+                                  : const Color(0xFF49454F),
+                              fontSize: 12,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            DownloadedMangaBadge(mangaId: manga.id),
+                            const SizedBox(width: 8),
+                            FavoriteBadge(mangaId: manga.id),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+      ),
+    );
+  }
+
+  void _openManga(Manga manga) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MangaDetailScreen(
+          mangaId: manga.id,
+          title: manga.title,
+          imageUrl: manga.coverUrl,
+          sourceId: manga.sourceId,
+        ),
+      ),
+    );
+  }
+
+  String _sourceLabel(String sourceId) {
+    final source = getSourceBySourceId(sourceId);
+    return source?.name ?? sourceId;
+  }
+
+  Widget _buildMangaGrid(List<Manga> allManga) {
+    final items = allManga.where((m) {
+      return _searchQuery.isEmpty ||
+          m.title.toLowerCase().contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    if (items.isEmpty) {
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
+          child: EmptyState(
+            icon: MdiIcons.lightbulbOutline,
+            title: AppLocalizations.of(context).suggestionsNoResults,
+            subtitle: _selectedGenre != null
+                ? AppLocalizations.of(context).suggestionsNoGenreResults
+                : AppLocalizations.of(context).tryDifferentSearch,
+          ),
+        ),
+      );
+    }
+
+    // Measured from the constraints rather than the viewport: the nav rail sits
+    // beside this screen on a wide layout and takes 80px off it, while MediaQuery
+    // still reports the window width down here. crossAxisExtent is measured
+    // before the SliverPadding below, which is what [mangaCellAspectRatio]
+    // expects -- it takes the width including the grid's own padding and
+    // subtracts that padding itself.
+    return SliverLayoutBuilder(
+      builder: (context, sliverConstraints) {
+        final availableWidth = sliverConstraints.crossAxisExtent;
+        final columns = _resolvedColumns(context, availableWidth);
+        return SliverPadding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: kMangaGridHorizontalPadding,
+          ),
+          sliver: SliverGrid.builder(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              childAspectRatio: mangaCellAspectRatio(
+                context,
+                columns: columns,
+                // Same rule and same bounds as the history grid, so a card is the
+                // same size on both tabs. Measured from the resolved column count
+                // rather than the stored setting, which on a wide layout is not
+                // what the grid ends up using.
+                titleFontSize: mangaCardTitleFontSize(columns),
+                availableWidth: availableWidth,
+              ),
+              crossAxisSpacing: kMangaGridCrossSpacing,
+              mainAxisSpacing: kMangaGridRowSpacing,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, index) {
+              final manga = items[index];
+              return _buildMangaCard(
+                context,
+                manga,
+                columns,
+                isSelected: _selectedMangaIds.contains(manga.id),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  /// Columns the suggestions grid actually renders at [_gridSize].
+  ///
+  /// Read from here rather than from [_gridSize] wherever the number is shown or
+  /// measured: the count is derived from the size and the width, so it is not
+  /// the stored number itself.
+  ///
+  /// No clamp of its own. It used to end in `.clamp(2, 7)`, holding this grid to
+  /// a ceiling one lower than the one every other grid shares -- see the same note
+  /// on the history grid's copy. [mangaGridColumns] now holds the count to
+  /// [kMangaGridMinColumns] and to nothing else, so there is no second opinion
+  /// left to add here.
+  int _resolvedColumns(BuildContext context, [double? availableWidth]) =>
+      mangaGridColumns(
+        context,
+        gridSize: _gridSize,
+        availableWidth: availableWidth,
+      );
+
+  /// [columns] is the resolved count, not the stored setting: the grid measures
+  /// its cells with it, so the title has to be drawn with the same value or a
+  /// two-line title is measured small and painted large, and the second line
+  /// lands outside the cell.
+  Widget _buildMangaCard(
+    BuildContext context,
+    Manga manga,
+    int columns, {
+    bool isSelected = false,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final titleColor = dark
+        ? Colors.white
+        : Theme.of(context).colorScheme.onSurface;
+    return GestureDetector(
+      onTap: () {
+        if (_isSelecting) {
+          _toggleSelect(manga.id);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => MangaDetailScreen(
+                mangaId: manga.id,
+                title: manga.title,
+                imageUrl: manga.coverUrl,
+                sourceId: manga.sourceId,
+                heroTag: mangaCoverHeroTag(
+                  sourceId: manga.sourceId,
+                  mangaId: manga.id,
+                ),
+              ),
+            ),
+          );
+        }
+      },
+      onLongPress: () => _enterSelection(manga.id),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: kMangaCoverAspectRatio,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                MangaCoverHero(
+                  tag: mangaCoverHeroTag(
+                    sourceId: manga.sourceId,
+                    mangaId: manga.id,
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: dark ? null : Border.all(color: Colors.black12),
+                      ),
+                      child: CachedMangaImage(
+                        imageUrl: manga.coverUrl,
+                        fit: BoxFit.cover,
+                        errorWidget: (context, url, error) => Container(
+                          color: amoled(context, 0xFF2C2C2E),
+                          alignment: Alignment.center,
+                          child: const Icon(
+                            MdiIcons.bookOpenVariant,
+                            color: Colors.white38,
+                            size: 28,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                DownloadedMangaBadge(mangaId: manga.id),
+                FavoriteBadge(mangaId: manga.id),
+                if (isSelected)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: 0.35),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.primary,
+                          width: 2.5,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        decoration: BoxDecoration(
+                          color: Theme.of(context).colorScheme.primary,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          MdiIcons.check,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: kMangaCardTitleGap),
+          Flexible(
+            child: Text(
+              manga.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: titleColor,
+                fontSize: mangaCardTitleFontSize(columns),
+                fontWeight: FontWeight.bold,
+                height: 1.2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

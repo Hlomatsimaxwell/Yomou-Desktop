@@ -1,0 +1,4904 @@
+import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'dart:ui' show ImageFilter;
+// intl exports its own TextDirection class, which would shadow dart:ui's
+// enum here; the seek bar needs the enum to flip itself for RTL series.
+import 'dart:ui' as ui show TextDirection;
+import 'package:battery_plus/battery_plus.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:yomou/core/theme/amoled.dart';
+import 'package:yomou/widgets/safe_image.dart';
+import 'package:yomou/widgets/material_symbol.dart';
+import 'package:yomou/widgets/sheet_snap.dart';
+import 'package:yomou/core/cache/app_cache.dart';
+import 'package:yomou/core/haptics.dart';
+import 'package:yomou/core/diagnostics/diag_log.dart';
+import 'package:yomou/core/storage/storage_stats.dart';
+import '../../../core/database/database_helper.dart';
+import '../../../core/database/source_cache.dart';
+import 'package:yomou/core/widgets/ios/ios_toast.dart';
+import 'package:yomou/core/widgets/reader_side_panel.dart';
+import 'package:yomou/core/widgets/responsive.dart';
+import 'package:yomou/data/providers/sources_provider.dart';
+import 'package:yomou/data/models/chapter.dart';
+import 'package:yomou/data/models/manga_source.dart';
+import 'package:yomou/features/history/providers/history_provider.dart';
+import 'package:yomou/features/library/providers/downloads_provider.dart';
+import 'package:yomou/features/settings/providers/cache_settings_provider.dart';
+import 'package:yomou/features/settings/providers/download_settings_provider.dart';
+import 'package:yomou/features/settings/providers/reader_actions_provider.dart';
+import 'package:yomou/features/settings/providers/reader_settings_provider.dart';
+import 'package:yomou/features/settings/providers/appearance_provider.dart';
+import 'package:yomou/core/widgets/empty_state.dart';
+import 'package:yomou/features/settings/screens/settings_screen.dart';
+import 'package:yomou/l10n/generated/app_localizations.dart';
+import '../services/chapter_downloader.dart';
+import '../services/download_job.dart';
+import '../services/download_requests.dart';
+import '../services/download_scheduler.dart';
+import '../../../services/widget_service.dart';
+
+// Reading modes (Kotatsu-style).
+enum ReadingMode { standard, rightToLeft, vertical, webtoon }
+
+class ReaderScreen extends ConsumerStatefulWidget {
+  final List<Chapter> allChapters;
+  final int initialChapterIndex;
+  final int initialPageIndex;
+  final String mangaId;
+  final String? sourceId;
+  final String? mangaTitle;
+  final String? mangaCoverUrl;
+  final int totalChapters;
+
+  const ReaderScreen({
+    super.key,
+    required this.allChapters,
+    required this.initialChapterIndex,
+    this.initialPageIndex = 0,
+    required this.mangaId,
+    this.sourceId,
+    this.mangaTitle,
+    this.mangaCoverUrl,
+    this.totalChapters = 0,
+  });
+
+  @override
+  ConsumerState<ReaderScreen> createState() => _ReaderScreenState();
+}
+
+/// Widest the chapter tray is allowed to get when presented as a bottom sheet,
+/// in logical pixels.
+///
+/// Only phones use this: on a wide window the tray is a right-anchored side
+/// panel (see [showReaderSidePanel]) with its own width. The sheet itself has
+/// no intrinsic cap, so left alone it spans the full window on a desktop -- a
+/// 1280px-wide column of chapter rows with a grabber stranded in the middle of
+/// it, which reads as a broken layout rather than a deliberate one.
+///
+/// 560 rather than the 520 the other sheets use, because the tray has a grid
+/// mode for page thumbnails and that view needs a little more room than a list
+/// of titles does. Below this the cap simply never binds, so phones are
+/// unaffected.
+const double kReaderTrayMaxWidth = 560;
+
+/// The sizes the chapter tray may come to rest at, as fractions of the screen:
+/// a small peek, the open size, and full height.
+///
+/// The sheet is given these, and the tray's own drag handling -- the grabber
+/// and header, which sit outside the list and so are invisible to the sheet --
+/// snaps between them with the same list, so the two cannot drift apart.
+const List<double> kReaderTraySizes = [0.3, 0.5, 1.0];
+
+/// The size the chapter tray opens at: half open, so the page it was opened
+/// over stays visible behind it.
+const double kReaderTrayInitialSize = 0.5;
+
+/// Widest a portrait chrome pill is allowed to get.
+///
+/// The top and bottom bars are 32-radius frosted capsules, but both are laid
+/// out edge to edge, so on a desktop window they stretch to nearly the full
+/// 1280px -- a back button marooned at the far left with a progress track
+/// running the length of the window beside it. As pills they want to be pills,
+/// so on a wide window they centre at this width instead.
+///
+/// 480 is roughly what the portrait contents need: three icon buttons plus a
+/// progress track still long enough to hit a page on, and a title wide enough
+/// that a normal chapter name does not ellipsize. Both texts already cap at
+/// one line, so anything longer truncates rather than overflowing.
+///
+/// Portrait only. The landscape bar carries all seven controls in one row and
+/// spans the window instead -- see [_chromeSideInset].
+///
+/// Below 512 (480 plus the 16px gutter either side) the cap never binds and
+/// the bars are edge to edge exactly as before, so phones are unaffected.
+const double kReaderChromeMaxWidth = 480;
+
+class _ReaderScreenState extends ConsumerState<ReaderScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  final ScrollController _scrollController = ScrollController();
+  PageController _pageController = PageController();
+  Orientation? _lastReaderOrientation;
+  int _savedHorizontalPage = 0;
+  double _savedScrollOffset = 0;
+  final List<String> _pages = [];
+  final List<int> _loadedChapterIndices = [];
+
+  int _currentChapterIndex = 0;
+  bool _isLoadingNextChapter = false;
+  bool _isLoadingPreviousChapter = false;
+  int _lastPageIndex = -1;
+  bool _hasMoreChapters = true;
+  // While true, the "scrolled back to page 0 of a chapter" triggers won't
+  // auto-load/prepend the adjacent chapter. Set after an explicit chapter
+  // switch (which lands at page 1) and cleared once the reader actually moves
+  // forward, so a fresh landing is never misread as a backward swipe.
+  bool _suppressAdjacentAutoLoad = true;
+  // Bumped on every explicit chapter switch so the progress-track widget can
+  // reset its thumb to page 1 even when jumpTo() no-ops (no listener fires).
+  int _trackSession = 0;
+  // Tracks scroll direction (backing up vs. advancing) inside the vertical
+  // ticker, since ScrollPosition exposes no direct velocity getter.
+  double _lastScrollPixels = 0;
+  bool _showControls = true;
+  Timer? _statusTimer;
+  String _clockText = '';
+  int _batteryLevel = -1;
+
+  void _startStatusTicker() {
+    _updateStatusBadges();
+    _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) _updateStatusBadges();
+    });
+  }
+
+  Future<void> _updateStatusBadges() async {
+    final clock = DateFormat('HH:mm').format(DateTime.now());
+    var battery = _batteryLevel;
+    try {
+      battery = await Battery().batteryLevel;
+    } catch (_) {
+      // Emulator / unsupported platform: keep the previous value.
+    }
+    if (!mounted) return;
+    if (clock == _clockText && battery == _batteryLevel) return;
+    setState(() {
+      _clockText = clock;
+      _batteryLevel = battery;
+    });
+  }
+
+  // Kotatsu-style top info bar (shown while the system UI + controls are
+  // hidden): live clock and battery percentage.
+  void _applySystemUiMode() {
+    // Kotatsu behavior: while the controls are hidden the entire system UI is
+    // immersive (nothing drawn by the OS), so the reader renders its own slim
+    // status bar at the top edge. Tapping the controls restores the native
+    // system status bar / navigation bars.
+    //
+    // With "Fullscreen mode" off there is no immersive state at all: the
+    // system bars stay on screen whatever the controls are doing.
+    //
+    // System overlays are explicitly transparent in both states so the manga
+    // canvas and background draw all the way to the absolute top edge of the
+    // glass — there's never a reserved black strip where the status bar was.
+    SystemChrome.setEnabledSystemUIMode(
+      !_fullscreen || (_showControls && _showInfoBar)
+          ? SystemUiMode.edgeToEdge
+          : SystemUiMode.immersiveSticky,
+    );
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        statusBarBrightness: Brightness.dark,
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+    );
+  }
+
+  void _restoreSystemUi() {
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  /// `setPreferredOrientations` is app-wide, not screen-wide: whatever the
+  /// reader asks for outlives the reader unless something puts it back. Left
+  /// alone, a reader locked to landscape would leave the rest of the app stuck
+  /// in landscape, and picking "Automatic" in there would not be a reader
+  /// setting at all. So the reader treats its own choice as scoped to itself and
+  /// hands the previous policy back on the way out.
+  void _restoreOrientation() {
+    SystemChrome.setPreferredOrientations(_orientationBeforeReader);
+  }
+
+  // Chapter transition toast (Kotatsu-style chapter/page pill).
+  double _toastOpacity = 0;
+  int _toastShownChapter = -1;
+  Timer? _toastTimer;
+  Timer? _scrollStopTimer;
+  bool _isSaving = false;
+  Timer? _autoSaveTimer;
+  // Guards the debounced autosave: only fire when the page actually moved.
+  int _autoSavedPage = -1;
+  int _autoSavedChapter = -1;
+  bool _needsRestore = false;
+  int? _pendingJumpPage;
+  final Set<String> _bookmarkedKeys = {};
+
+  // Screen zoom: pinch + drag + double-tap that magnifies the WHOLE reader
+  // body (the entire manga/page canvas) as one uniform transform. The floating
+  // chrome cards and immersive status bar live outside the transform, so they
+  // stay put. Clamped so the canvas can never be panned past its own edges.
+  static const bool _zoomEnabled = true;
+
+  final TransformationController _screenZoom = TransformationController();
+  Offset _zoomFocal = Offset.zero;
+  Matrix4? _zoomScaleStart;
+  int? _zoomSeenPageCount;
+  late final AnimationController _zoomAnimController;
+  VoidCallback? _zoomAnimListener;
+
+  // The reader viewport size (used to clamp panning while zoomed).
+  Size? _zoomViewportSize;
+
+  String _bookmarkKey(String chapterId, int pageIndex) =>
+      '$chapterId:$pageIndex';
+
+  bool get _isCurrentPageBookmarked {
+    if (_currentChapterIndex < 0) return false;
+    return _bookmarkedKeys.contains(
+      _bookmarkKey(
+        widget.allChapters[_currentChapterIndex].id,
+        _currentPageIndex,
+      ),
+    );
+  }
+
+  ReadingMode _readingMode = ReadingMode.vertical;
+
+  // Settings state.
+  bool _useTwoPagesLayout = false;
+  bool _rotateScreen = false;
+  Timer? _autoScrollTimer;
+
+  // Settings resolved from Settings > Reader (global default, unless this
+  // title already carries its own stored choice for the equivalent key).
+  String _scaleMode = kScaleFitCenter;
+  bool _fullscreen = true;
+  bool _flashOnPageChange = false;
+  String _flashWith = kFlashWhite;
+  int _flashDurationMs = 300;
+
+  /// Flash once every N pages instead of on every page.
+  int _flashEvery = 1;
+  int _webtoonZoomOut = 0;
+  bool _webtoonGaps = false;
+  bool _reduceMemory = false;
+  bool _keepScreenOn = true;
+  bool _showInfoBar = true;
+  bool _transparentInfoBar = true;
+  bool _showChapterPopup = true;
+  bool _numberedPages = false;
+  bool _invertNavigation = false;
+  String _background = kBgDefault;
+  String _preload = kPreloadWifiOnly;
+  bool _preloadAllowed = true;
+
+  // Zone tap bookkeeping, so a press can only ever run one of the two actions.
+  Offset? _zoneTapPosition;
+  bool _zoneLongPressConsumed = false;
+
+  // The app's own orientation policy, saved on entry so the reader's lock can
+  // be undone on the way out. See `_restoreOrientation`.
+  List<DeviceOrientation> _orientationBeforeReader =
+      DeviceOrientation.values;
+
+  // E-Ink page refresh: a short flat flash painted over the canvas, because
+  // e-ink panels leave the previous page visible until something forces a
+  // full refresh. Android exposes no e-ink API, so this is offered on every
+  // device and simply does nothing until the user turns it on.
+  double _flashOpacity = 0;
+  Timer? _flashTimer;
+  int _flashedPage = -1;
+
+  // Volume-button paging, armed only while a chapter is open.
+  final MethodChannel _volumeChannel =
+      const MethodChannel('com.hlomatsi.yomou/volume');
+  bool _volumeButtons = false;
+
+  // Color correction.
+  double _brightness = 100;
+  double _contrast = 100;
+  double _sepia = 0;
+  double _warm = 0;
+
+  // Chapter downloads.
+  final Set<String> _downloadedChapters = {};
+  final Map<String, _ChapterDownloadTask> _activeDownloads = {};
+
+  // Chapter tray selection mode.
+  final Set<String> _selectedIds = {};
+  bool _selectionMode = false;
+  double _lastReadChapter = -1;
+
+  // Per-page bookkeeping: pages belong to a chapter index, and each page may
+  // have a local file path when its chapter has been downloaded.
+  final List<int> _pagesChapters = [];
+  final List<String?> _pageFiles = [];
+
+  // Bumped per page to force a reload after the user taps "Retry" on a failed
+  // page (the new value becomes part of the image widget's key).
+  final Map<int, int> _pageRetryTokens = {};
+
+  // Proactive preloading: keeps the last 8 network URLs we asked the cache
+  // manager to fetch so we don't schedule duplicate downloads, and remembers
+  // which page the preload window was centered on (so chapter loads and scroll
+  // ticks don't spam the cache).
+  final Set<String> _prefetchScheduled = {};
+  int _prefetchAnchorPage = -1;
+  bool _isPrecachingNextChapter = false;
+  Map<String, String>? _activeRequestHeaders;
+
+  // Refresh callback for the open chapter tray sheet.
+  bool _trayOpen = false;
+  VoidCallback? _trayRefresh;
+  final DraggableScrollableController _trayExtentController =
+      DraggableScrollableController();
+
+  // Where the tray's drag started, and null whenever none is in progress.
+  double? _trayDragStartSize;
+
+  /// Scroll controller for the tray when it is presented as a side panel.
+  ///
+  /// A field rather than a local so the list keeps its position across the
+  /// rebuilds that switching view or toggling selection triggers — a controller
+  /// constructed in `build` would start the list back at the top every time.
+  /// The sheet path does not use this: there the list scrolls through the
+  /// draggable sheet's own controller.
+  final ScrollController _trayPanelController = ScrollController();
+
+  void _refreshTray() {
+    if (_trayOpen) _trayRefresh?.call();
+  }
+
+  /// Whether this mode pages one image at a time, horizontally.
+  ///
+  /// Delegates to [modeIsPaged] so the reader and the settings screen cannot
+  /// disagree about which mode the pager is for. They have to agree: this
+  /// chooses between the pager and the scrolling list, and the settings screen
+  /// uses it to grey out the settings only the pager can honour.
+  bool get _isHorizontal => modeIsPaged(_readingMode.name);
+
+  @override
+  void initState() {
+    super.initState();
+    _currentChapterIndex = widget.initialChapterIndex;
+    _needsRestore = widget.initialPageIndex > 0;
+    _zoomAnimController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 220),
+    );
+    _loadPrefs();
+    _loadBookmarks();
+    _loadProgress();
+    _loadDownloads().then((_) => _loadChapter(_currentChapterIndex));
+
+    _scrollController.addListener(_handleScrollTicker);
+    WidgetsBinding.instance.addObserver(this);
+    _startStatusTicker();
+    _sessionStopwatch.start();
+    // Crash safety: while the reader is open, periodically persist the current
+    // position so a forced kill (force-stop, crash, OOM) doesn't lose the read.
+    // The debounce logic in _autosaveProgress skips no-op ticks.
+    _autoSaveTimer = Timer.periodic(
+      const Duration(seconds: 3),
+      (_) => _autosaveProgress(),
+    );
+  }
+
+  // --- PERSISTED READER SETTINGS ---
+
+  // In-reader changes stay per manga so changing them for one title never
+  // affects another. They are written as `<mangaId>_reader_*` overrides that
+  // take priority over the global defaults in Settings > Reader.
+  String _prefKey(String suffix) => '${widget.mangaId}_$suffix';
+
+  Future<void> _loadPrefs() async {
+    // Read from persistence rather than from the provider: the provider starts
+    // on defaults and fills in asynchronously, so a chapter opened during app
+    // start would otherwise silently run on defaults instead of the saved
+    // values. Persistence is the source of truth, and the reader is the only
+    // thing that mutates per-title keys while it is open.
+    final ctx = await resolveReaderContext(widget.mangaId);
+    final s = ctx.settings;
+    final readerWarmNight = ref.read(appearanceSettingsProvider).readerWarmNight;
+    // Contrast and sepia have never had a global, so they stay per-title.
+    final prefs = await SharedPreferences.getInstance();
+    final contrast = prefs.getDouble(_prefKey('reader_contrast')) ?? 100;
+    final sepia = prefs.getDouble(_prefKey('reader_sepia')) ?? 0;
+    final brightness = prefs.getDouble(_prefKey('reader_brightness')) ?? 100;
+    final savedWarm = prefs.getDouble(_prefKey('reader_warm'));
+    final isNight = DateTime.now().hour >= 19 || DateTime.now().hour < 6;
+    final warm = savedWarm ?? (readerWarmNight && isNight ? 35.0 : 0.0);
+
+    if (!mounted) return;
+    setState(() {
+      _readingMode = ReadingMode.values.firstWhere(
+        (m) => m.name == (prefs.getString(_prefKey('reader_mode')) ?? s.readingMode),
+        orElse: () => ReadingMode.webtoon,
+      );
+    _useTwoPagesLayout = prefs.getBool(_prefKey('reader_two_pages')) ?? s.twoPages;
+      _scaleMode = s.scaleMode;
+      _fullscreen = s.fullscreen;
+      _flashOnPageChange = s.flashOnPageChange;
+      _flashWith = s.flashWith;
+      _flashDurationMs = s.flashDurationMs;
+      _flashEvery = s.flashEvery;
+      _webtoonZoomOut = s.webtoonZoomOut;
+      _webtoonGaps = s.webtoonGaps;
+      _reduceMemory = s.reduceMemory;
+      _keepScreenOn = s.keepScreenOn;
+      _showInfoBar = s.showInfoBar;
+      _transparentInfoBar = s.transparentInfoBar;
+      _showChapterPopup = s.showChapterPopup;
+      _numberedPages = s.numberedPages;
+      _invertNavigation = s.invertNavigation;
+      _background = s.background;
+      _preload = s.preload;
+      _brightness = brightness;
+      _contrast = contrast;
+      _sepia = sepia;
+      _warm = warm;
+      // The toggle persists per title. Whether the page is locked now is read
+      // from that flag, and the actual orientation it locks to follows the
+      // position the reader opened in (see _applyOrientation below).
+      _rotateScreen = prefs.getBool(_prefKey('reader_rotate_screen')) ?? false;
+    });
+
+    if (_useTwoPagesLayout) {
+      _recreatePageController();
+    }
+
+    // Remembered before anything is applied, because the reader is the only
+    // thing that locks orientation and the rest of the app has to get its own
+    // policy back on the way out.
+    _orientationBeforeReader = DeviceOrientation.values;
+    _applyOrientation(_rotateScreen
+        ? (MediaQuery.of(context).orientation == Orientation.landscape
+            ? kOrientLandscape
+            : kOrientPortrait)
+        : s.orientation);
+    _applyMemoryProfile(s.reduceMemory);
+    _armVolumeKeys(s.volumeButtons);
+    _applyKeepScreenOn();
+    _resolvePreloadPolicy();
+    _applySystemUiMode();
+  }
+
+  /// "Keep screen on" holds the window awake for as long as the reader is
+  /// open, and releases it on exit so the flag is never left set app-wide.
+  void _applyKeepScreenOn({bool? force}) {
+    ReaderPlatform.setKeepScreenOn(force ?? _keepScreenOn);
+  }
+
+  /// "Preload pages" gates the prefetch window, which is the reader's only
+  /// source of speculative network traffic.
+  Future<void> _resolvePreloadPolicy() async {
+    if (_preload == kPreloadNever) {
+      _preloadAllowed = false;
+    } else if (_preload == kPreloadWifiOnly) {
+      _preloadAllowed = await ReaderPlatform.isUnmetered();
+    } else {
+      _preloadAllowed = true;
+    }
+  }
+
+  /// Pushes the chosen orientation to the platform.
+  ///
+  /// "Default" and "Automatic" are deliberately different readings: Default
+  /// locks the orientation the reader opened in, so the device cannot rotate
+  /// out from under a page mid-sentence, while Automatic follows the device
+  /// as it turns.
+  void _applyOrientation(String orientation) {
+    switch (orientation) {
+      case kOrientPortrait:
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+          DeviceOrientation.portraitDown,
+        ]);
+      case kOrientLandscape:
+        SystemChrome.setPreferredOrientations([
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ]);
+      case kOrientDefault:
+        final isLandscape =
+            MediaQuery.of(context).orientation == Orientation.landscape;
+        SystemChrome.setPreferredOrientations(isLandscape
+            ? [
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ]
+            : [
+                DeviceOrientation.portraitUp,
+                DeviceOrientation.portraitDown,
+              ]);
+      case kOrientAutomatic:
+      default:
+        SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
+  }
+
+  /// Caps the decoded-image cache to the budget the user picked. This is the
+  /// dominant memory cost in the reader — a long webtoon chapter holds whole
+  /// bitmaps — so the "Reduce memory consumption" switch moves the real limit
+  /// rather than just a label.
+  void _applyMemoryProfile(bool reduce) {
+    final profile = MemoryProfile.forReduceMemory(reduce);
+    // `maximumSizeBytes` is the budget that actually applies; the count-based
+    // `maximumSize` is left alone because deriving an image count from a byte
+    // budget would be a guess about decoded page sizes.
+    PaintingBinding.instance.imageCache.maximumSizeBytes =
+        profile.imageCacheBytes;
+  }
+
+  /// Volume keys are only swallowed while a chapter is open and the user asked
+  /// for paging, so they keep controlling system volume everywhere else.
+  void _armVolumeKeys(bool enabled) {
+    _volumeButtons = enabled;
+    if (!enabled) {
+      _volumeChannel.setMethodCallHandler(null);
+      _setVolumeEnabled(false);
+      return;
+    }
+    _volumeChannel.setMethodCallHandler((call) async {
+      if (call.method != 'volumeKey') return null;
+      final args = call.arguments;
+      final up = args is Map ? (args['up'] as bool? ?? true) : true;
+      if (!mounted) return null;
+      // "Invert navigation control" swaps the keys too, so the keyboard and
+      // the swipe move together instead of fighting each other.
+      final step = _invertNavigation ? -1 : 1;
+      _stepPage(up ? step : -step);
+      return null;
+    });
+    _setVolumeEnabled(true);
+  }
+
+  Future<void> _setVolumeEnabled(bool enabled) async {
+    try {
+      await _volumeChannel.invokeMethod<void>('setEnabled', {'enabled': enabled});
+    } on PlatformException {
+      // Older install without the native side: paging just stays inert.
+    } on MissingPluginException {
+      // Same.
+    }
+  }
+
+  /// E-Ink page flash. A real refresh needs the panel to be cleared, so the
+  /// canvas is briefly flooded with a flat colour; without this an e-ink screen
+  /// can carry page ghosts from the previous chapter.
+  ///
+  /// Android exposes no way to ask whether a panel is e-ink, so this is offered
+  /// on every device — on an LCD or OLED it reads as a plain blink, which is
+  /// exactly what the user asked for by turning it on.
+  ///
+  /// Keyed on the page actually changing: the scrolling modes call this from
+  /// the scroll ticker, which fires on every frame of a drag, and without the
+  /// guard a single swipe would strobe the panel dozens of times. "Flash every"
+  /// then widens that key to every Nth page.
+  void _flashOnPage(int page) {
+    if (!_flashOnPageChange || _flashEvery < 1) return;
+    if (page == _flashedPage) return;
+    if (_flashedPage >= 0 && page ~/ _flashEvery == _flashedPage ~/ _flashEvery) {
+      return;
+    }
+    _flashedPage = page;
+    _flashTimer?.cancel();
+    if (!mounted) return;
+    setState(() => _flashOpacity = 1);
+    _flashTimer = Timer(Duration(milliseconds: _flashDurationMs), () {
+      if (!mounted) return;
+      setState(() => _flashOpacity = 0);
+    });
+  }
+
+  /// Moves one page (or one spread) in the direction the volume key asked for.
+  void _stepPage(int delta) {
+    if (_pages.isEmpty) return;
+    if (_isHorizontal) {
+      if (!_pageController.hasClients) return;
+      final current = (_pageController.page ?? _currentPageIndex).round();
+      final target = (current + delta).clamp(0, _pages.length - 1);
+      if (target != current) _pageController.jumpToPage(target);
+    } else {
+      final target = _currentPageIndex + delta;
+      if (target < 0) {
+        _loadPreviousChapter();
+      } else if (target < _pages.length) {
+        _jumpToPage(target);
+      } else {
+        _loadNextChapter();
+      }
+    }
+  }
+
+  void _saveReaderMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefKey('reader_mode'), _readingMode.name);
+  }
+
+  void _saveBool(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
+  }
+
+  void _saveColorCorrection() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_prefKey('reader_brightness'), _brightness);
+    await prefs.setDouble(_prefKey('reader_contrast'), _contrast);
+    await prefs.setDouble(_prefKey('reader_sepia'), _sepia);
+    await prefs.setDouble(_prefKey('reader_warm'), _warm);
+  }
+
+  void _recreatePageController() {
+    _pageController.dispose();
+    _pageController = PageController(
+      viewportFraction: _useTwoPagesLayout ? 0.5 : 1.0,
+    );
+  }
+
+  @override
+  void dispose() {
+    _flushSessionTime();
+    _sessionStopwatch.stop();
+    WidgetsBinding.instance.removeObserver(this);
+    _statusTimer?.cancel();
+    // The immersive overlay on every exit path restores the normal system UI,
+    // and the orientation the reader took goes back with it.
+    _restoreSystemUi();
+    _restoreOrientation();
+    _autoSaveTimer?.cancel();
+    _scrollController.dispose();
+    _pageController.dispose();
+    _trayExtentController.dispose();
+    _trayPanelController.dispose();
+    _screenZoom.dispose();
+    _toastTimer?.cancel();
+    _scrollStopTimer?.cancel();
+    _autoScrollTimer?.cancel();
+    _flashTimer?.cancel();
+    // Hand the volume keys back to the system before the reader goes away, or
+    // they stay swallowed and the user can't change volume anywhere else.
+    if (_volumeButtons) {
+      _volumeChannel.setMethodCallHandler(null);
+      _setVolumeEnabled(false);
+    }
+    // Likewise the wake lock: it belongs to the reader, not the app.
+    if (_keepScreenOn) _applyKeepScreenOn(force: false);
+    _zoomAnimController.dispose();
+    super.dispose();
+  }
+
+  void _toggleControls() {
+    setState(() {
+      _showControls = !_showControls;
+    });
+    _applySystemUiMode();
+  }
+
+  /// A press on the page can mean two different things depending on how long it
+  /// is held, and the arena does not always settle that in the app's favour —
+  /// a long press can also be reported as a tap. These three handlers make the
+  /// two mutually exclusive: whichever fires first wins, and the other becomes
+  /// a no-op for that press.
+  void _zoneTapDown(TapDownDetails d) {
+    _zoneLongPressConsumed = false;
+    _zoneTapPosition = d.localPosition;
+  }
+
+  void _zoneTapUp(TapUpDetails d) {
+    if (_zoneLongPressConsumed) {
+      _zoneLongPressConsumed = false;
+      return;
+    }
+    _runZoneAction(d.localPosition, gesture: ZoneGesture.tap);
+  }
+
+  void _zoneLongPressStart(LongPressStartDetails d) {
+    // The press it was holding belongs to the long press now, so the tap that
+    // follows the finger lifting is dropped in `_zoneTapUp`. `_zoneTapPosition`
+    // is preferred over the reported one because a finger that drifted a few
+    // pixels should still map to the cell the press started in, not the one it
+    // wandered into.
+    _zoneLongPressConsumed = true;
+    _runZoneAction(_zoneTapPosition ?? d.localPosition,
+        gesture: ZoneGesture.longTap);
+  }
+
+  /// Runs whatever Settings > Reader actions maps to the 3x3 zone the touch
+  /// landed in. A zone mapped to "None" swallows the gesture entirely, which is
+  /// what "Disable all" is for: a stray tap can then never turn a page.
+  void _runZoneAction(Offset position, {required ZoneGesture gesture}) {    final size = MediaQuery.sizeOf(context);
+    if (size.width <= 0 || size.height <= 0) return;
+
+    final column = (position.dx / size.width * kZoneColumns)
+        .floor()
+        .clamp(0, kZoneColumns - 1);
+    final row =
+        (position.dy / size.height * kZoneRows).floor().clamp(0, kZoneRows - 1);
+
+    final action =
+        ref.read(readerActionsProvider).action(row, column, gesture);
+    switch (action) {
+      case kActNextPage:
+        _stepPage(1);
+      case kActPrevPage:
+        _stepPage(-1);
+      case kActNextChapter:
+        _loadNextChapter();
+      case kActPrevChapter:
+        _loadPreviousChapter();
+      case kActShowMenu:
+        _showSettingsSheet();
+      case kActToggleUi:
+        _toggleControls();
+      case kActNone:
+        break;
+    }
+  }
+
+  /// Kotatsu-style left-hand status text: "Ch. 26/205 Pg. 3/16 12%".
+  String _immersiveStatusText(int chapterIndex, String chapterLabel) {
+    final page = _currentPageIndex;
+    final totalPages = _pages.length;
+    final progress = widget.totalChapters > 0
+        ? (((chapterIndex + 1) / widget.totalChapters) * 100).round()
+        : (totalPages > 0 ? (((page + 1) / totalPages) * 100).round() : 0);
+    final ch = chapterLabel.isNotEmpty ? chapterLabel : '${chapterIndex + 1}';
+    return 'Ch. $ch/${widget.totalChapters} Pg. ${page + 1}/$totalPages $progress%';
+  }
+
+  /// The overlay strip shown while the reader is fullscreen and the controls
+  /// Horizontal inset for the floating chrome pills.
+  ///
+  /// Landscape: a plain 16px gutter, so the merged bar spans the window. It
+  /// carries seven controls at once and the page slider between them, and at
+  /// the portrait cap of 480 the slider was left a stub too short to aim at.
+  /// Landscape has the width to spend on it.
+  ///
+  /// Portrait: symmetric insets that centre the bar at
+  /// [kReaderChromeMaxWidth] once the window is wide enough for the cap to
+  /// bind, falling back to a 16px gutter below that. Two short pills stretched
+  /// across a desktop window read as broken bars, which is the case the cap
+  /// exists for.
+  ///
+  /// Expressed as symmetric insets rather than a [Center] around the pill so
+  /// the pills keep their existing [AnimatedPositioned] shape -- a centred
+  /// pill inside an edge-to-edge positioned slot would animate differently
+  /// when the window resizes, and the bars hide by animating their insets
+  /// off-screen.
+  double _chromeSideInset(BuildContext context) {
+    if (_mergeChromeInLandscape) return 16;
+    final width = MediaQuery.sizeOf(context).width;
+    // Scale with the device rather than being pinned to a fixed 480px cap:
+    // on larger screens (and in Split-screen/desktop) the caps were much
+    // smaller than the window, so the page slider had almost no room. Aim
+    // for a bar that fills ~88% of the width, falling back to a 16px gutter
+    // once the screen is too narrow for that.
+    final cap = (width * 0.95).clamp(320.0, width - 24);
+    final inset = (width - cap) / 2;
+    return inset < 16 ? 16 : inset;
+  }
+
+  /// Whether the reader's two floating pills should collapse into one.
+  ///
+  /// Landscape has the least vertical room of any orientation and the two
+  /// pills cost it twice, so the bottom pill's contents move up into the top
+  /// one. Portrait is left alone: with height to spare, two bars keep the page
+  /// clear of controls and the title has room for its chapter subtitle.
+  bool get _mergeChromeInLandscape =>
+      MediaQuery.orientationOf(context) == Orientation.landscape;
+
+  /// The 32-radius frosted capsule both reader bars are drawn in.
+  Widget _buildChromeCapsule({
+    required Widget child,
+    required bool dark,
+    required bool frosted,
+  }) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(32),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: frosted ? 16 : 0,
+          sigmaY: frosted ? 16 : 0,
+        ),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: frosted
+                ? dark
+                      ? const Color(0x661C1C1E)
+                      : Colors.white.withValues(alpha: 0.62)
+                : dark
+                ? const Color(0xF228282A)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(
+              color: dark ? Colors.white24 : Colors.black12,
+            ),
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReaderBackButton(Color iconColor) {
+    return IconButton(
+      icon: Icon(MdiIcons.arrowLeft, color: iconColor),
+      onPressed: () async {
+        await _saveCascadingReadProgress();
+        if (!mounted) return;
+        Navigator.pop(context);
+      },
+    );
+  }
+
+  /// The manga title, with the chapter line under it.
+  ///
+  /// [twoLine] is false in the merged landscape bar: that row is already
+  /// carrying six other controls, and a second line would make the pill
+  /// taller for a chapter number the reader can get from the tray.
+  Widget _buildReaderTitleBlock({
+    required bool twoLine,
+    required String chapterLabel,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          widget.mangaTitle ?? widget.allChapters[_readChapterIndex].title,
+          style: TextStyle(
+            color: dark ? Colors.white : const Color(0xFF1C1B1F),
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (twoLine) ...[
+          const SizedBox(height: 2),
+          Text(
+            AppLocalizations.of(context).readerChapterShort(chapterLabel),
+            style: TextStyle(
+              color: dark ? Colors.white54 : const Color(0xFF49454F),
+              fontSize: 12,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildPrevChapterButton(Color iconColor) {
+    return IconButton(
+      tooltip: AppLocalizations.of(context).readerPreviousChapter,
+      padding: EdgeInsets.zero,
+      icon: Icon(MdiIcons.skipPrevious, color: iconColor, size: 28),
+      onPressed: _currentChapterIndex > 0
+          ? () => _changeChapterExplicitly(_currentChapterIndex - 1)
+          : null,
+    );
+  }
+
+  Widget _buildNextChapterButton(Color iconColor) {
+    return IconButton(
+      tooltip: AppLocalizations.of(context).readerNextChapter,
+      padding: EdgeInsets.zero,
+      icon: Icon(MdiIcons.skipNext, color: iconColor, size: 28),
+      onPressed: _currentChapterIndex < widget.allChapters.length - 1
+          ? () => _changeChapterExplicitly(_currentChapterIndex + 1)
+          : null,
+    );
+  }
+
+  /// The page slider.
+  ///
+  /// [flexible] shares the row rather than taking all of it, which the merged
+  /// landscape bar needs: the title sits beside the track, and neither may
+  /// crowd the other out.
+  Widget _buildReaderProgressSlot({bool flexible = false, int flex = 2}) {
+    final track = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 0),
+      child: _buildProgressTrack(),
+    );
+    return flexible ? Flexible(flex: flex, child: track) : Expanded(child: track);
+  }
+
+  Widget _buildReaderChromeDivider() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      width: 1,
+      height: 26,
+      color: dark ? Colors.white24 : Colors.black12,
+    );
+  }
+
+  Widget _buildChaptersButton(Color iconColor) {
+    return IconButton(
+      tooltip: AppLocalizations.of(context).detailChapters,
+      icon: Icon(MdiIcons.formatListBulleted, color: iconColor, size: 24),
+      onPressed: _showChapterList,
+    );
+  }
+
+  Widget _buildReaderSettingsButton(Color iconColor) {
+    return IconButton(
+      tooltip: AppLocalizations.of(context).settings,
+      icon: Icon(MdiIcons.dotsVertical, color: iconColor, size: 24),
+      onPressed: _showSettingsSheet,
+    );
+  }
+
+  /// The overlay strip shown while the reader is fullscreen and the controls
+  /// are hidden. Extracted so "Transparent reader information bar" can swap the
+  /// backing without duplicating the whole row.
+  Widget _buildInfoBar(int chapterIndex, String chapterLabel) {
+    // The page counter only appears in the bar when "Numbered pages" is on and
+    // the bar is not being used purely for chapter progress.
+    final row = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Flexible(
+          child: Text(
+            _immersiveStatusText(chapterIndex, chapterLabel),
+            style: _infoTextStyle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_batteryLevel >= 0) ...[
+              Icon(
+                _batteryLevel > 20
+                    ? MdiIcons.battery
+                    : MdiIcons.batteryLow,
+                color: Colors.white,
+                size: 14,
+              ),
+              const SizedBox(width: 4),
+              Text('$_batteryLevel%', style: _infoTextStyle),
+              const SizedBox(width: 12),
+            ],
+            Text(_clockText, style: _infoTextStyle),
+          ],
+        ),
+      ],
+    );
+
+    return SafeArea(
+      key: const ValueKey('immersiveStatusBar'),
+      top: true,
+      left: false,
+      right: false,
+      minimum: const EdgeInsets.only(top: 0),
+      child: Transform.translate(
+        offset: const Offset(0, -3),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 2, 12, 4),
+          child: _transparentInfoBar
+              // Transparent: the glyphs carry their own shadow, which is what
+              // keeps them legible over a white or bright full-bleed page.
+              ? row
+              // Opaque: a short scrim behind the strip, because a drop shadow
+              // alone washes out over a bright page.
+              : DecoratedBox(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xB3000000), Color(0x00000000)],
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: row,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  /// Shadowed white text: the info bar sits directly on the artwork, so it
+  /// cannot rely on a surface behind it.
+  static const TextStyle _infoTextStyle = TextStyle(
+    color: Colors.white,
+    fontSize: 12.5,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.2,
+    shadows: [
+      Shadow(color: Colors.black, blurRadius: 1.5),
+      Shadow(color: Colors.black87, blurRadius: 5, offset: Offset(0, 1)),
+    ],
+  );
+
+  int get _currentPageIndex {
+    if (_pages.isEmpty) return 0;
+    if (_isHorizontal && _pageController.positions.length == 1) {
+      return _pageController.page?.round().clamp(0, _pages.length - 1) ?? 0;
+    } else if (!_isHorizontal && _scrollController.hasClients) {
+      const perPage = 600.0;
+      return (_scrollController.offset / perPage).floor().clamp(
+        0,
+        _pages.length - 1,
+      );
+    }
+    return 0;
+  }
+
+  /// The chapter the reader is currently showing, accounting for chapters
+  /// prepended/appended by the adjacent-chapter loaders. Falls back to the
+  /// newest loaded chapter while pages are still loading.
+  int get _readChapterIndex {
+    if (_pagesChapters.isEmpty) return _currentChapterIndex;
+    final ci = _pagesChapters[_currentPageIndex];
+    if (ci < 0 || ci >= widget.allChapters.length) return _currentChapterIndex;
+    return ci;
+  }
+
+  void _jumpToPage(int pageIndex) {
+    if (_pages.isEmpty) return;
+    final idx = pageIndex.clamp(0, _pages.length - 1);
+    if (_isHorizontal) {
+      if (_pageController.hasClients) _pageController.jumpToPage(idx);
+    } else {
+      if (_scrollController.hasClients) {
+        final extent = _scrollController.position.maxScrollExtent;
+        _scrollController.jumpTo((idx * 600.0).clamp(0.0, extent));
+      }
+    }
+    setState(() {});
+  }
+
+  Widget _buildProgressTrack() {
+    // Show the slider against the chapter under the reader, not the whole
+    // concatenated list (which grows when adjacent chapters are loaded).
+    final chapterIndex = _readChapterIndex;
+    final accent = ref.watch(accentProvider);
+    int chapterStart = 0;
+    var chapterCount = _pages.length;
+    if (_pagesChapters.isNotEmpty) {
+      var start = -1;
+      var end = -1;
+      for (var i = 0; i < _pagesChapters.length; i++) {
+        if (_pagesChapters[i] == chapterIndex) {
+          if (start == -1) start = i;
+          end = i;
+        }
+      }
+      if (start != -1) {
+        chapterStart = start;
+        chapterCount = end - start + 1;
+      }
+    }
+    return _ReaderProgressTrack(
+      session: _trackSession,
+      totalPages: _pages.length,
+      chapterStart: chapterStart,
+      chapterPageCount: chapterCount,
+      isHorizontal: _isHorizontal,
+      scrollController: _scrollController,
+      pageController: _pageController,
+      onSeek: _jumpToPage,
+      accent: accent,
+      reversed: _readingMode == ReadingMode.rightToLeft,
+    );
+  }
+
+  void _restorePosition() {
+    if (!_needsRestore || _pages.isEmpty) return;
+    _needsRestore = false;
+    _jumpToPage(widget.initialPageIndex);
+  }
+
+  void _setReadingMode(ReadingMode mode) {
+    if (mode == _readingMode) return;
+    final approxPage = _currentPageIndex;
+    if (_autoScrollTimer != null) {
+      _autoScrollTimer!.cancel();
+      _autoScrollTimer = null;
+    }
+    final oldController = _pageController;
+    setState(() {
+      _readingMode = mode;
+      // Each mode gets a freshly initialized controller so the old pager's
+      // scroll position never lingers on the new layout.
+      _pageController = PageController(
+        viewportFraction: _useTwoPagesLayout ? 0.5 : 1.0,
+      );
+    });
+    // The old PageView unmounts during the rebuild above; only now is it safe
+    // to release its controller.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (oldController != _pageController) oldController.dispose();
+    });
+    _saveReaderMode();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _jumpToPage(approxPage);
+    });
+  }
+
+  // --- SETTINGS ACTIONS ---
+
+  void _toggleTwoPages(bool value) {
+    if (value == _useTwoPagesLayout) return;
+    final lastApprox = _currentPageIndex;
+    final oldController = _pageController;
+    setState(() {
+      _useTwoPagesLayout = value;
+      _pageController = PageController(viewportFraction: value ? 0.5 : 1.0);
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (oldController != _pageController) oldController.dispose();
+      if (!mounted || !_pageController.hasClients || _pages.isEmpty) return;
+      _pageController.jumpToPage(lastApprox.clamp(0, _pages.length - 1));
+    });
+    _saveBool(_prefKey('reader_two_pages'), value);
+  }
+
+  void _toggleRotateScreen(bool value) {
+    // Locks to the orientation the reader is actually in at the moment the
+    // switch is thrown — landscape stays landscape, portrait stays portrait —
+    // rather than pretending "lock" means "force landscape". Off returns to
+    // the normal automatic behaviour, which follows the device.
+    final isLandscape =
+        MediaQuery.of(context).orientation == Orientation.landscape;
+    final orientation = value
+        ? (isLandscape ? kOrientLandscape : kOrientPortrait)
+        : kOrientAutomatic;
+    setState(() => _rotateScreen = value);
+    _applyOrientation(orientation);
+    _saveBool(_prefKey('reader_rotate_screen'), value);
+  }
+
+  void _showColorCorrectionDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final dark = Theme.of(context).brightness == Brightness.dark;
+          final l = AppLocalizations.of(context);
+          return AlertDialog(
+            backgroundColor: dark ? amoled(context, 0xFF1C1C1E) : Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            title: Text(
+              l.colorCorrection,
+              style: TextStyle(
+                color: dark
+                    ? Colors.white
+                    : Theme.of(context).colorScheme.onSurface,
+                fontSize: 18,
+              ),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildFilterSlider(
+                  l.filterBrightness,
+                  _brightness,
+                  (v) => setDialogState(() => _brightness = v),
+                ),
+                _buildFilterSlider(
+                  l.filterContrast,
+                  _contrast,
+                  (v) => setDialogState(() => _contrast = v),
+                ),
+                _buildFilterSlider(
+                  l.filterSepia,
+                  _sepia,
+                  (v) => setDialogState(() => _sepia = v),
+                ),
+                _buildFilterSlider(
+                  l.filterWarmth,
+                  _warm,
+                  (v) => setDialogState(() => _warm = v),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  setDialogState(() {
+                    _brightness = 100;
+                    _contrast = 100;
+                    _sepia = 0;
+                    _warm = 0;
+                  });
+                  if (mounted) setState(() {});
+                  _saveColorCorrection();
+                },
+                child: Text(
+                  l.reset,
+                  style: TextStyle(
+                    color: dark ? Colors.white70 : const Color(0xFF49454F),
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  setState(() {});
+                  _saveColorCorrection();
+                  Navigator.pop(context);
+                },
+                child: Text(
+                  l.done,
+                  style: TextStyle(
+                    color: dark
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.onSurface,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildFilterSlider(
+    String label,
+    double value,
+    ValueChanged<double> onChanged,
+  ) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Row(
+      children: [
+        SizedBox(
+          width: 90,
+          child: Text(
+            label,
+            style: TextStyle(
+              color: dark ? Colors.white70 : const Color(0xFF49454F),
+              fontSize: 14,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Slider(min: 0, max: 200, value: value, onChanged: onChanged),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pinCurrentBookmark() async {
+    if (_pages.isEmpty) return;
+    if (_currentChapterIndex < 0 || _currentChapterIndex >= widget.allChapters.length) {
+      return;
+    }
+    final chapter = widget.allChapters[_currentChapterIndex];
+    final page = _pages[_currentPageIndex.clamp(0, _pages.length - 1)];
+    await DatabaseHelper.instance.addBookmark(
+      mangaId: widget.mangaId,
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      pageIndex: _currentPageIndex,
+      pageUrl: page,
+    );
+    setState(() {
+      _bookmarkedKeys.add(_bookmarkKey(chapter.id, _currentPageIndex));
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Bookmark pinned to this page'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
+  Future<void> _saveCurrentPage() async {
+    if (_pages.isEmpty) return;
+    final pageIndex = _currentPageIndex.clamp(0, _pages.length - 1);
+    final url = _pages[pageIndex];
+
+    try {
+      final readerSource = widget.sourceId != null
+          ? getSourceBySourceId(widget.sourceId!)
+          : null;
+      final headers =
+          readerSource?.headers ?? ref.read(currentSourceProvider).headers;
+      final response = await http.get(Uri.parse(url), headers: headers);
+      if (response.statusCode != 200) {
+        throw Exception('HTTP ${response.statusCode}');
+      }
+
+      Directory directory;
+      try {
+        // Honors the folder picked in Settings > Downloads; while nothing is
+        // chosen (or the location can't be resolved) keep saving to the
+        // shared downloads folder.
+        final picked = await resolveDownloadLocationPath(
+          ref.read(downloadSettingsProvider).defaultPageSaveDir,
+        );
+        if (picked != null && picked.isNotEmpty) {
+          final dir = Directory(picked);
+          if (!await dir.exists()) {
+            await dir.create(recursive: true);
+          }
+          directory = dir;
+        } else {
+          // Nothing chosen yet: prefer the shared Download folder, but only
+          // when we can actually write there (scoped storage rejects it on
+          // API 29+ without a legacy-storage grant).
+          final shared = await getPublicDownloadsPath();
+          if (shared != null && await isDirWritable(shared)) {
+            directory = Directory(shared);
+          } else {
+            directory =
+                await getDownloadsDirectory() ??
+                await getApplicationDocumentsDirectory();
+          }
+        }
+      } catch (_) {
+        directory = await getApplicationDocumentsDirectory();
+      }
+
+      final ext = _imageExtension(url, response.headers['content-type']);
+      final file = File('${directory.path}/page_${pageIndex + 1}.$ext');
+      await file.writeAsBytes(response.bodyBytes);
+
+      if (mounted) {
+        showIosToast(
+          context,
+          message: AppLocalizations.of(context).readerPageSavedTo(file.path),
+          duration: const Duration(seconds: 2),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        showIosToast(
+          context,
+          message: AppLocalizations.of(context).readerFailedToSavePage,
+        );
+      }
+    }
+  }
+
+  String _imageExtension(String url, String? contentType) {
+    if (contentType != null) {
+      if (contentType.contains('png')) return 'png';
+      if (contentType.contains('jpeg')) return 'jpg';
+      if (contentType.contains('webp')) return 'webp';
+      if (contentType.contains('gif')) return 'gif';
+    }
+    final dotIndex = url.lastIndexOf('.');
+    if (dotIndex != -1) {
+      final ext = url.substring(dotIndex + 1).split('?').first.toLowerCase();
+      if (RegExp(r'^[a-z0-9]{1,5}$').hasMatch(ext)) return ext;
+    }
+    return 'png';
+  }
+
+  // --- CHAPTER NAVIGATION ---
+
+  void _changeChapterExplicitly(int newIndex) {
+    setState(() {
+      _currentChapterIndex = newIndex;
+      _pages.clear();
+      _pagesChapters.clear();
+      _pageFiles.clear();
+      _loadedChapterIndices.clear();
+      _pageRetryTokens.clear();
+      _hasMoreChapters = true;
+      _lastPageIndex = -1;
+      _prefetchScheduled.clear();
+    });
+    // Explicit chapter navigation always starts at the first page: the
+    // "resume at last page" restore applies only to the first chapter opened
+    // from the detail screen. (Bookmarks set [_pendingJumpPage] first.)
+    // Landing at page 1 must never be misread as "scrolled back a chapter".
+    _needsRestore = false;
+    _suppressAdjacentAutoLoad = true;
+    _trackSession += 1;
+    _pendingJumpPage ??= 0;
+    _loadChapter(_currentChapterIndex);
+  }
+
+  void _showChapterList() {
+    final currentIndex = _currentChapterIndex;
+    MangaSource? source;
+    if (widget.sourceId != null) {
+      source = getSourceBySourceId(widget.sourceId!);
+    }
+    source ??= ref.read(currentSourceProvider);
+    final headers = source?.headers;
+    final l = AppLocalizations.of(context);
+
+    // One local for the current view, shared by both presentations, so the
+    // panel and the sheet are two wrappers around the same state rather than
+    // two copies of it.
+    var listView = 'list';
+    var didJump = false;
+
+    if (usesWideLayout(context)) {
+      // A full-height panel: no extent to drag, so no draggable sheet and no
+      // grabber. The panel's own header carries the title and close button.
+      //
+      // The body is wrapped in a [StatefulBuilder] for the same reason the
+      // sheet path is: the panel lives in its own route, so a `setState` on
+      // this screen would not rebuild it. The builder's setter is the only
+      // thing that can.
+      showReaderSidePanel<void>(
+        context,
+        title: l.readerChaptersTitle,
+        builder: (context) => StatefulBuilder(
+          builder: (context, setSheetState) {
+            if (!didJump) {
+              // Same as the sheet: open at the chapter being read rather than
+              // at the top of the list.
+              _jumpToCurrentInSheet(_trayPanelController, currentIndex, 72, 0);
+              didJump = true;
+            }
+            return _buildTrayBody(
+              listView: listView,
+              setListView: (v) => setSheetState(() => listView = v),
+              currentIndex: currentIndex,
+              headers: headers,
+              onRefresh: () => setSheetState(() {}),
+              isSheet: false,
+              controller: _trayPanelController,
+            );
+          },
+        ),
+      ).then((_) => _closeTray());
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.5),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      builder: (context) {
+        // Capped and centred so the tray reads as a panel on a wide window
+        // rather than a full-width drawer. The cap is on width only.
+        //
+        // The box is shrunk to the panel -- the `heightFactor` here and
+        // `expand: false` below -- so a strip of scrim stays reachable above
+        // it and the tray can still be dismissed by tapping outside. A box
+        // covering the window would swallow that tap. The drag extents are
+        // unaffected: they are fractions of the incoming constraints, which
+        // are still the full window height.
+        return Align(
+          alignment: Alignment.bottomCenter,
+          heightFactor: 1.0,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: kReaderTrayMaxWidth),
+            child: DraggableScrollableSheet(
+              expand: false,
+              controller: _trayExtentController,
+              initialChildSize: kReaderTrayInitialSize,
+              // A pull that runs past the smallest snap size has nowhere to
+              // rest, so the sheet closes once it hits the floor instead of
+              // sitting as a thin strip. This is what makes "scroll to the
+              // top and keep going" dismiss the tray.
+              minChildSize: 0.0,
+              maxChildSize: kReaderTraySizes.last,
+              snap: true,
+              shouldCloseOnMinExtent: true,
+              // The same const list the grabber's drag snaps against, so
+              // there is one set of resting sizes rather than two that can
+              // drift. Const also matters here: a list built in this builder
+              // would be a new object on every build, and the sheet re-snaps
+              // whenever its `snapSizes` change.
+              snapSizes: kReaderTraySizes,
+              builder: (context, sheetController) {
+                // The sheet itself is transparent so the reader stays
+                // visible above the tray while it is half-open; the tray
+                // therefore paints its own rounded surface.
+                final dark = Theme.of(context).brightness == Brightness.dark;
+                return Container(
+                  decoration: BoxDecoration(
+                    color: dark ? amoled(context, 0xFF1C1C1E) : Colors.white,
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(28),
+                    ),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: StatefulBuilder(
+                    builder: (context, setSheetState) {
+                      if (!didJump) {
+                        didJump = true;
+                        // Push the tray back to the open size on a fresh
+                        // open: the [DraggableScrollableController] is
+                        // persistent, so it would otherwise inherit the size
+                        // the tray was left at. Deferred to after the frame
+                        // because this builder runs during build, where the
+                        // sheet has no scroll position attached yet and the
+                        // animation would be dropped.
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (!mounted || !_trayExtentController.isAttached) {
+                            return;
+                          }
+                          _trayExtentController.animateTo(
+                            kReaderTrayInitialSize,
+                            duration: const Duration(milliseconds: 250),
+                            curve: Curves.easeOut,
+                          );
+                        });
+                        _jumpToCurrentInSheet(
+                          sheetController,
+                          currentIndex,
+                          72,
+                          0,
+                        );
+                      }
+                      return _buildTrayBody(
+                        listView: listView,
+                        setListView: (v) => setSheetState(() => listView = v),
+                        currentIndex: currentIndex,
+                        headers: headers,
+                        onRefresh: () => setSheetState(() {}),
+                        isSheet: true,
+                        controller: sheetController,
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
+    ).then((_) => _closeTray());
+  }
+
+  void _closeTray() {
+    _trayOpen = false;
+    _trayRefresh = null;
+    _selectedIds.clear();
+    _selectionMode = false;
+  }
+
+  // The grabber and the header are the tray's drag handle.
+  //
+  // A [DraggableScrollableSheet] is only draggable through the scrollable it
+  // hands out, and both of these sit above the chapter list rather than inside
+  // it -- so until now the grabber could be dragged and nothing whatsoever
+  // would happen. Driving the extent by hand fixes that, and lets the tray be
+  // swiped down from wherever the list happens to be scrolled to.
+  void _onTrayDragStart(DragStartDetails details) {
+    if (!_trayExtentController.isAttached) return;
+    _trayDragStartSize = _trayExtentController.size;
+  }
+
+  void _onTrayDragUpdate(DragUpdateDetails details) {
+    final start = _trayDragStartSize;
+    if (start == null || !_trayExtentController.isAttached) return;
+    // The sheet measures itself in fractions of its own container, so the drag
+    // is converted through that height rather than the window's: they stop
+    // being the same number as soon as anything else takes a slice of the
+    // screen.
+    final height = _trayExtentController.sizeToPixels(1.0);
+    if (height <= 0) return;
+    _trayExtentController.jumpTo(
+      (start - details.delta.dy / height).clamp(
+        0.0,
+        kReaderTraySizes.last,
+      ),
+    );
+  }
+
+  void _onTrayDragEnd(DragEndDetails details) {
+    final start = _trayDragStartSize;
+    _trayDragStartSize = null;
+    if (start == null || !_trayExtentController.isAttached) return;
+    final velocity = details.velocity.pixelsPerSecond.dy;
+    final size = _trayExtentController.size;
+
+    // Flicked down while already at the smallest size: there is nothing below
+    // it to shrink to, so leave the way a bottom sheet leaves. The tray is a
+    // chooser over the page, and dragging it down is how a reader expects to
+    // be rid of it.
+    // Dragged all the way to the floor: there is nothing to keep showing, so
+    // dismiss it the way a pull-to-close gesture does.
+    if (size < 0.08 || (velocity > 300 && size <= kReaderTraySizes.first + 0.01)) {
+      Navigator.of(context).maybePop();
+      return;
+    }
+
+    _trayExtentController.animateTo(
+      sheetSnapTarget(
+        size: size,
+        velocity: velocity,
+        stops: kReaderTraySizes,
+      ),
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  /// The tray's contents, identical under both presentations.
+  ///
+  /// [isSheet] selects only the presentation details: the phone's draggable
+  /// bottom sheet brings a grabber and its own scroll controller (so that
+  /// dragging the sheet drags the list), while the side panel is already full
+  /// height and has neither.
+  Widget _buildTrayBody({
+    required String listView,
+    required ValueChanged<String> setListView,
+    required int currentIndex,
+    required Map<String, String>? headers,
+    required VoidCallback onRefresh,
+    required bool isSheet,
+    required ScrollController controller,
+  }) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    _trayOpen = true;
+    _trayRefresh = onRefresh;
+
+    final header = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // A grabber is a bottom-sheet affordance: it invites a drag that the
+        // side panel has no extent for, and it is what the tray's own drag
+        // handling is hung off below. The panel's header carries the title and
+        // the close button instead.
+        if (isSheet)
+          Center(
+            child: Container(
+              width: 36,
+              height: 5,
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              decoration: BoxDecoration(
+                color: dark ? const Color(0xFF6E6E73) : Colors.black26,
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+          ),
+        _buildChapterSheetHeader(listView, setListView),
+      ],
+    );
+
+    return Column(
+      children: [
+        // Grabber and header together are the tray's handle. `down` rather than
+        // the default `start` so the sheet does not jump by the touch slop the
+        // moment the drag is recognised.
+        if (isSheet)
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            dragStartBehavior: DragStartBehavior.down,
+            onVerticalDragStart: _onTrayDragStart,
+            onVerticalDragUpdate: _onTrayDragUpdate,
+            onVerticalDragEnd: _onTrayDragEnd,
+            child: header,
+          )
+        else
+          header,
+        Expanded(
+          child: switch (listView) {
+            'grid' => _buildPageGridView(controller, currentIndex, headers),
+            'bookmark' => _buildBookmarksView(
+              controller,
+              headers,
+              onRefresh: onRefresh,
+            ),
+            'download' => _buildDownloadsView(controller),
+            _ => _buildChapterListView(controller, currentIndex),
+          },
+        ),
+      ],
+    );
+  }
+
+  // Retries until the sheet's scroll controller is attached, then centers the
+  // active chapter.
+  void _jumpToCurrentInSheet(
+    ScrollController controller,
+    int index,
+    double itemExtent,
+    int attempt,
+  ) {
+    if (attempt > 6) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!controller.hasClients) {
+        _jumpToCurrentInSheet(controller, index, itemExtent, attempt + 1);
+        return;
+      }
+      final viewDim = controller.position.viewportDimension;
+      final target = (index * itemExtent - viewDim / 2).clamp(
+        0.0,
+        controller.position.maxScrollExtent,
+      );
+      controller.jumpTo(target);
+    });
+  }
+
+  Widget _buildChapterSheetHeader(
+    String listView,
+    ValueChanged<String> setListView,
+  ) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final iconColor = dark ? Colors.white : const Color(0xFF1C1B1F);
+    final selectedCount = _selectedIds.length;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 200),
+        child: _selectionMode
+            ? Row(
+                key: const ValueKey('selectionTrayHeader'),
+                children: [
+                  IconButton(
+                    icon: Icon(MdiIcons.close, color: iconColor),
+                    onPressed: _exitSelection,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    '$selectedCount',
+                    style: TextStyle(
+                      color: iconColor,
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const Spacer(),
+                  if (_isAllSelectedInTray)
+                    IconButton(
+                      icon: MaterialSymbol(
+                        MaterialSymbol.selectAll,
+                        color: iconColor,
+                      ),
+                      tooltip: AppLocalizations.of(context).deselectAll,
+                      onPressed: _deselectAllChapters,
+                    )
+                  else ...[
+                    if (_hasSelectionGap)
+                      IconButton(
+                        icon: Icon(MdiIcons.formatListBulleted, color: iconColor),
+                        tooltip: AppLocalizations.of(context).selectRange,
+                        onPressed: _selectChapterRange,
+                      ),
+                    IconButton(
+                      icon: MaterialSymbol(
+                        MaterialSymbol.selectAll,
+                        color: iconColor,
+                      ),
+                      tooltip: AppLocalizations.of(context).selectAll,
+                      onPressed: _selectAllChapters,
+                    ),
+                  ],
+                  IconButton(
+                    icon: Icon(
+                      _isAllSelectedRead
+                          ? MdiIcons.eyeOffOutline
+                          : MdiIcons.eyeOutline,
+                      color: iconColor,
+                    ),
+                    tooltip: AppLocalizations.of(context).toggleRead,
+                    onPressed: _toggleSelectedRead,
+                  ),
+                  if (_isSelectedDownloaded)
+                    IconButton(
+                      icon: Icon(
+                        MdiIcons.deleteOutline,
+                        color: iconColor,
+                      ),
+                      tooltip: AppLocalizations.of(
+                        context,
+                      ).removeDownloadTooltip,
+                      onPressed: _deleteSelectedDownloads,
+                    )
+                  else
+                    IconButton(
+                      icon: MaterialSymbol(MaterialSymbol.download, color: iconColor),
+                      tooltip: AppLocalizations.of(context).detailDownload,
+                      onPressed: _downloadSelectedChapters,
+                    ),
+                ],
+              )
+            : Row(
+                key: const ValueKey('trayHeader'),
+                children: [
+                  _buildTrayViewIcon(
+                    icon: MdiIcons.formatListBulleted,
+                    active: listView == 'list',
+                    dark: dark,
+                    onTap: () => setListView('list'),
+                  ),
+                  _buildTrayViewIcon(
+                    icon: MdiIcons.viewGridOutline,
+                    active: listView == 'grid',
+                    dark: dark,
+                    onTap: () => setListView('grid'),
+                  ),
+                  _buildTrayViewIcon(
+                    icon: MdiIcons.bookmarkOutline,
+                    active: listView == 'bookmark',
+                    dark: dark,
+                    onTap: () => setListView('bookmark'),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  // A single clean, thin icon to switch the tray's view (list/grid/bookmark),
+  // tinted when active, grey otherwise. No heavy background.
+  Widget _buildTrayViewIcon({
+    required IconData icon,
+    required bool active,
+    required bool dark,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Icon(
+          icon,
+          color: active
+              ? (dark ? Colors.white : const Color(0xFF1C1B1F))
+              : Colors.grey,
+          size: 20,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChapterListView(ScrollController controller, int currentIndex) {
+    return ListView.builder(
+      controller: controller,
+      itemExtent: 72,
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.only(bottom: 24),
+      itemCount: widget.allChapters.length,
+      itemBuilder: (context, index) {
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final chapter = widget.allChapters[index];
+        final isCurrent = index == currentIndex;
+        final isSelected = _selectedIds.contains(chapter.id);
+        final isRead = _lastReadChapter >= 0 && (index + 1) <= _lastReadChapter;
+
+        return ListTile(
+          key: ValueKey(chapter.id),
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 2,
+          ),
+          shape: isSelected
+              ? RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(
+                    color: dark ? Colors.white : const Color(0xFF334155),
+                    width: 1.5,
+                  ),
+                )
+              : null,
+          tileColor: isSelected
+              ? (dark ? amoled(context, 0xFF2C2C2C) : const Color(0xFFE2E8F0))
+              : null,
+          title: Row(
+            children: [
+              Icon(
+                MdiIcons.play,
+                color: isCurrent
+                    ? Theme.of(context).colorScheme.primary
+                    : Colors.transparent,
+                size: 16,
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  chapter.title.isEmpty
+                      ? AppLocalizations.of(
+                          context,
+                        ).chapterNum(chapter.chapterNumber)
+                      : chapter.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isRead && !isCurrent
+                        ? Colors.grey
+                        : (dark ? Colors.white70 : const Color(0xFF49454F)),
+                    fontSize: 14,
+                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.w400,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          subtitle: Text(
+            _chapterSubtitle(chapter, AppLocalizations.of(context)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: Colors.grey, fontSize: 11),
+          ),
+          trailing: isSelected
+              ? Icon(
+                  MdiIcons.check,
+                  color: Theme.of(context).colorScheme.primary,
+                  size: 18,
+                )
+              : null,
+          onTap: () {
+            if (_selectionMode) {
+              _toggleSelection(chapter.id);
+            } else {
+              Navigator.pop(context);
+              _changeChapterExplicitly(index);
+            }
+          },
+          onLongPress: () => _enterSelection(chapter.id),
+        );
+      },
+    );
+  }
+
+  Widget _buildPageGridView(
+    ScrollController controller,
+    int currentIndex,
+    Map<String, String>? headers,
+  ) {
+    if (_pages.isEmpty) {
+      final dark = Theme.of(context).brightness == Brightness.dark;
+      return Center(
+        child: Text(
+          AppLocalizations.of(context).readerPagesLoading,
+          style: TextStyle(
+            color: dark ? Colors.white54 : Colors.black54,
+            fontSize: 14,
+          ),
+        ),
+      );
+    }
+
+    return GridView.builder(
+      controller: controller,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 3,
+        childAspectRatio: 0.58,
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+      ),
+      itemCount: _pages.length,
+      itemBuilder: (context, index) {
+        return _buildPageThumbCard(
+          imageUrl: _pages[index],
+          badgeText: '${index + 1}',
+          headers: headers,
+          localPath: _pageFiles[index],
+          onTap: () => _openPage(index),
+        );
+      },
+    );
+  }
+
+  void _openPage(int pageIndex) {
+    Navigator.pop(context);
+    _jumpToPage(pageIndex);
+  }
+
+  Widget _buildBookmarksView(
+    ScrollController controller,
+    Map<String, String>? headers, {
+    required VoidCallback onRefresh,
+  }) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: DatabaseHelper.instance.getBookmarks(widget.mangaId),
+      builder: (context, snapshot) {
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        if (snapshot.hasError) {
+          return Center(
+            child: Text(
+              AppLocalizations.of(context).readerFailedToLoadBookmarks,
+              style: TextStyle(
+                color: dark ? Colors.white54 : Colors.black54,
+                fontSize: 14,
+              ),
+            ),
+          );
+        }
+        final bookmarks = snapshot.data ?? const [];
+        if (bookmarks.isEmpty) {
+          return EmptyState(
+            icon: MdiIcons.bookmarkOutline,
+            title: AppLocalizations.of(context).bookmarksEmpty,
+            subtitle: AppLocalizations.of(context).readerBookmarksHint,
+          );
+        }
+
+        // Group bookmarks by chapter.
+        final grouped = <String, List<Map<String, dynamic>>>{};
+        String titleFor(Map<String, dynamic> bm) =>
+            bm['chapterTitle'] as String? ?? '';
+        for (final bm in bookmarks) {
+          final key = (bm['chapterId'] as String?) ?? titleFor(bm);
+          grouped.putIfAbsent(key, () => []).add(bm);
+        }
+
+        final totalPages = _pages.isEmpty ? 0 : _pages.length;
+
+        return SingleChildScrollView(
+          controller: controller,
+          padding: const EdgeInsets.only(bottom: 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: grouped.entries.map((entry) {
+              final isCurrentChapter =
+                  entry.key == widget.allChapters[_currentChapterIndex].id;
+              final chapterNum = entry.value.first['chapterTitle'] ?? '';
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                    child: Text(
+                      AppLocalizations.of(context).chapterNum(chapterNum),
+                      style: TextStyle(
+                        color: dark
+                            ? Colors.white
+                            : Theme.of(context).colorScheme.onSurface,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          childAspectRatio: 0.58,
+                          crossAxisSpacing: 8,
+                          mainAxisSpacing: 8,
+                        ),
+                    itemCount: entry.value.length,
+                    itemBuilder: (context, index) {
+                      final bm = entry.value[index];
+                      final pageIndex = (bm['pageIndex'] as int?) ?? 0;
+                      final percent = isCurrentChapter && totalPages > 1
+                          ? ((pageIndex / totalPages) * 100).round()
+                          : null;
+                      return _buildPageThumbCard(
+                        imageUrl: bm['pageUrl'] as String? ?? '',
+                        badgeText: percent != null
+                            ? '$percent%'
+                            : '${pageIndex + 1}',
+                        headers: headers,
+                        onTap: () => _openBookmark(bm),
+                        onLongPress: () => _removeBookmark(bm, onRefresh),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDownloadsView(ScrollController controller) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: DatabaseHelper.instance.getDownloads(widget.mangaId),
+      builder: (context, snapshot) {
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final rows = snapshot.data ?? const [];
+        if (rows.isEmpty) {
+          return Center(
+            child: Text(
+              AppLocalizations.of(context).readerNoDownloads,
+              style: TextStyle(
+                color: dark ? Colors.white54 : Colors.black54,
+                fontSize: 14,
+              ),
+            ),
+          );
+        }
+        return ListView.builder(
+          controller: controller,
+          padding: const EdgeInsets.only(bottom: 24),
+          itemCount: rows.length,
+          itemBuilder: (context, index) {
+            final row = rows[index];
+            final chapterId = row['chapterId'] as String? ?? '';
+            final title = row['chapterTitle'] as String? ?? '';
+            final chapterNumber = ((row['chapterNumber'] as num?) ?? 0)
+                .toDouble();
+            final pageCount = (row['pageCount'] as int?) ?? 0;
+            final downloadedAt = row['downloadedAt'] as String? ?? '';
+            return ListTile(
+              dense: true,
+              leading: Icon(
+                MdiIcons.checkboxBlankCircleOutline,
+                color: _activeGreen,
+                size: 22,
+              ),
+              title: Text(
+                title.isEmpty
+                    ? AppLocalizations.of(
+                        context,
+                      ).chapterNum(_formatChapterNumber(chapterNumber))
+                    : title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: dark ? Colors.white70 : const Color(0xFF49454F),
+                  fontSize: 14,
+                ),
+              ),
+              subtitle: Text(
+                AppLocalizations.of(context).readerDownloadedChapterDate(
+                  pageCount,
+                  _formatChapterDate(
+                    downloadedAt,
+                    AppLocalizations.of(context),
+                  ),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: dark ? Colors.white38 : Colors.black38,
+                  fontSize: 11,
+                ),
+              ),
+              trailing: IconButton(
+                icon: Icon(
+                  MdiIcons.deleteOutline,
+                  color: dark ? Colors.white38 : Colors.black38,
+                  size: 20,
+                ),
+                tooltip: AppLocalizations.of(context).removeDownloadTooltip,
+                onPressed: () => _confirmRemoveDownload(chapterId, title),
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                final matched = widget.allChapters.indexWhere(
+                  (c) => c.id == chapterId,
+                );
+                if (matched != -1) {
+                  _pendingJumpPage = 0;
+                  _changeChapterExplicitly(matched);
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  String _formatChapterNumber(double number) {
+    if (number == number.roundToDouble()) {
+      return number.toInt().toString();
+    }
+    return number.toStringAsFixed(
+      number == number.truncateToDouble() ? 0 : _decimalPlaces(number),
+    );
+  }
+
+  int _decimalPlaces(double number) {
+    final s = number.toString();
+    final dot = s.indexOf('.');
+    return dot == -1 ? 0 : s.length - dot - 1;
+  }
+
+  Widget _buildPageThumbCard({
+    required String imageUrl,
+    required String badgeText,
+    required Map<String, String>? headers,
+    required VoidCallback onTap,
+    VoidCallback? onLongPress,
+    String? localPath,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: localPath != null && File(localPath).existsSync()
+                  ? SafeFileImage(
+                      file: File(localPath),
+                      fit: BoxFit.cover,
+                      errorWidget: (context, path, error) {
+                        final dark =
+                            Theme.of(context).brightness == Brightness.dark;
+                        return Container(
+                          color: dark ? amoled(context, 0xFF2C2C2E) : Colors.white,
+                          child: Icon(
+                            MdiIcons.bookOpenVariant,
+                            color: dark ? Colors.white38 : Colors.black38,
+                            size: 20,
+                          ),
+                        );
+                      },
+                    )
+                  : SafeNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      httpHeaders: headers,
+                      errorWidget: (context, url, error) {
+                        final dark =
+                            Theme.of(context).brightness == Brightness.dark;
+                        return Container(
+                          color: dark ? amoled(context, 0xFF2C2C2E) : Colors.white,
+                          child: Icon(
+                            MdiIcons.bookOpenVariant,
+                            color: dark ? Colors.white38 : Colors.black38,
+                            size: 20,
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ),
+          Positioned(
+            bottom: 4,
+            right: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: const BoxDecoration(
+                color: Colors.black87,
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                badgeText,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _removeBookmark(
+    Map<String, dynamic> bookmark,
+    VoidCallback onRefresh,
+  ) async {
+    final id = bookmark['id'] as int?;
+    if (id == null) return;
+
+    final pageIndex = (bookmark['pageIndex'] as int?) ?? 0;
+    final chapterTitle = bookmark['chapterTitle'] ?? '';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final l = AppLocalizations.of(context);
+        return AlertDialog(
+          backgroundColor: dark ? amoled(context, 0xFF2C2C2E) : Colors.white,
+          title: Text(
+            l.readerRemoveBookmarkTitle,
+            style: TextStyle(
+              color: dark
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          content: Text(
+            l.readerBookmarkLine(chapterTitle, pageIndex + 1),
+            style: TextStyle(
+              color: dark ? Colors.white70 : const Color(0xFF49454F),
+              fontSize: 14,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                l.cancel,
+                style: TextStyle(
+                  color: dark ? Colors.white70 : const Color(0xFF49454F),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(l.remove, style: const TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+
+    await DatabaseHelper.instance.deleteBookmark(id);
+    final key = _bookmarkKey(bookmark['chapterId'] as String? ?? '', pageIndex);
+    if (mounted) {
+      setState(() => _bookmarkedKeys.remove(key));
+    }
+    onRefresh();
+  }
+
+  void _openBookmark(Map<String, dynamic> bookmark) {
+    final chapterId = bookmark['chapterId'] as String?;
+    final pageIndex = (bookmark['pageIndex'] as int?) ?? 0;
+    final index = chapterId == null
+        ? -1
+        : widget.allChapters.indexWhere((c) => c.id == chapterId);
+
+    Navigator.pop(context);
+    if (index != -1) {
+      _pendingJumpPage = pageIndex;
+      _changeChapterExplicitly(index);
+    } else {
+      showIosToast(
+        context,
+        message: AppLocalizations.of(context).readerChapterNotFound,
+      );
+    }
+  }
+
+  String _chapterSubtitle(Chapter chapter, AppLocalizations l) {
+    final num = chapter.chapterNumber.isNotEmpty
+        ? '#${chapter.chapterNumber}'
+        : '';
+    final date = _formatChapterDate(chapter.releaseDate, l);
+    return [num, date].where((p) => p.isNotEmpty).join(' • ');
+  }
+
+  String _formatChapterDate(String? raw, AppLocalizations l) {
+    if (raw == null || raw.isEmpty) return '';
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return raw;
+    final months = [
+      l.jan,
+      l.feb,
+      l.mar,
+      l.apr,
+      l.may,
+      l.jun,
+      l.jul,
+      l.aug,
+      l.sep,
+      l.oct,
+      l.nov,
+      l.dec,
+    ];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+
+  // --- SETTINGS SHEET ---
+
+  void _showSettingsSheet() {
+    showReaderSidePanel<void>(
+      context,
+      title: AppLocalizations.of(context).readerSectionOptions,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final dark = Theme.of(context).brightness == Brightness.dark;
+            final l = AppLocalizations.of(context);
+            // The phone's bottom sheet needs a cap of its own: without one it
+            // grows to its content and runs off the top of the screen. The
+            // panel caps itself around this content, so it needs none.
+            return SafeArea(
+              child: ConstrainedBox(
+                constraints: usesWideLayout(context)
+                    ? const BoxConstraints()
+                    : BoxConstraints(
+                        maxHeight: MediaQuery.sizeOf(context).height * 0.88,
+                      ),
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // Top actions.
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.contentSaveOutline,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          l.readerSavePage,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: _saveCurrentPage,
+                      ),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          _isCurrentPageBookmarked
+                              ? MdiIcons.bookmark
+                              : MdiIcons.bookmarkOutline,
+                          color: _isCurrentPageBookmarked
+                              ? _activeGreen
+                              : dark
+                              ? Colors.white
+                              : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          _isCurrentPageBookmarked
+                              ? l.readerRemoveBookmark
+                              : l.readerAddBookmark,
+                          style: TextStyle(
+                            color: _isCurrentPageBookmarked
+                                ? _activeGreen
+                                : dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: () async {
+                          await _toggleBookmark();
+                          if (context.mounted) setSheetState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Read mode.
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Text(
+                          l.readerSectionReadingMode,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      _buildReadModeSelector(
+                        afterChange: () => setSheetState(() {}),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        l.readerRememberedNote,
+                        style: TextStyle(
+                          color: dark ? Colors.white38 : Colors.black45,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Toggles.
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                        ),
+                        activeTrackColor: _activeGreen,
+                        activeThumbColor: Colors.white,
+                        inactiveTrackColor: dark
+                            ? Colors.white24
+                            : Colors.black26,
+                        inactiveThumbColor: dark ? Colors.white : Colors.white,
+                        dense: true,
+                        title: Text(
+                          l.readerTwoPagesLandscape,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        value: _useTwoPagesLayout,
+                        onChanged: (value) {
+                          _toggleTwoPages(value);
+                          setSheetState(() {});
+                        },
+                      ),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                        ),
+                        activeTrackColor: _activeGreen,
+                        activeThumbColor: Colors.white,
+                        inactiveTrackColor: dark
+                            ? Colors.white24
+                            : Colors.black26,
+                        inactiveThumbColor: dark ? Colors.white : Colors.white,
+                        dense: true,
+                        title: Text(
+                          l.readerRotateScreen,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        value: _rotateScreen,
+                        onChanged: (value) {
+                          _toggleRotateScreen(value);
+                          setSheetState(() {});
+                        },
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Plain list items.
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.timerOutline,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          l.readerAutoScroll,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: () {},
+                      ),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.contrast,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          l.colorCorrection,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: _showColorCorrectionDialog,
+                      ),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.bookmarkPlusOutline,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          'Pin this page (bookmark)',
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await _pinCurrentBookmark();
+                        },
+                      ),
+                      SwitchListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        secondary: Icon(
+                          Icons.nights_stay_outlined,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          'Warmer night reading',
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        subtitle: Text(
+                          'Adds warmth automatically (toggle to apply now)',
+                          style: TextStyle(
+                            color: dark ? Colors.white70 : Colors.black54,
+                            fontSize: 12,
+                          ),
+                        ),
+                        value: ref.watch(appearanceSettingsProvider).readerWarmNight,
+                        onChanged: (v) {
+                          ref
+                              .read(appearanceSettingsProvider.notifier)
+                              .setReaderWarmNight(v);
+                          setState(() {
+                            _warm = v ? 35.0 : 0.0;
+                          });
+                          _saveColorCorrection();
+                        },
+                      ),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.checkCircleOutline,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          'Mark current chapter as read',
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await _saveCascadingReadProgress();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Marked chapter as read'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.playlistCheck,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          'Mark up to here as read',
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await _saveCascadingReadProgress();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Marked chapters up to here as read'),
+                                duration: Duration(seconds: 2),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                      ListTile(
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        leading: Icon(
+                          MdiIcons.cogOutline,
+                          color: dark ? Colors.white : const Color(0xFF1C1B1F),
+                          size: 22,
+                        ),
+                        title: Text(
+                          // "Reader settings", not the generic "Settings":
+                          // every other row in this sheet is a reading control,
+                          // so the row that leaves the reader for a settings
+                          // page should say which section it opens.
+                          l.settingsReader,
+                          style: TextStyle(
+                            color: dark
+                                ? Colors.white
+                                : const Color(0xFF1C1B1F),
+                            fontSize: 15,
+                          ),
+                        ),
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              // The settings hub, not the bare Reader screen:
+                              // on a wide window the hub is two panes, and
+                              // arriving directly on Reader would drop the
+                              // category list on the left, so there would be
+                              // no way on to any other settings. [l] is the
+                              // hub's own title for this category, so the
+                              // selection matches the row that gets highlighted.
+                              builder: (context) => SettingsScreen(
+                                initialCategory: l.settingsReader,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildReadModeSelector({VoidCallback? afterChange}) {
+    final l = AppLocalizations.of(context);
+    final modes = [
+      (ReadingMode.standard, MdiIcons.crop, l.readerModeStandard),
+      (ReadingMode.rightToLeft, MdiIcons.swapHorizontal, l.readerModeRTL),
+      (ReadingMode.vertical, MdiIcons.rectangleOutline, l.readerModeVertical),
+      (ReadingMode.webtoon, MdiIcons.viewListOutline, l.readerModeWebtoon),
+    ];
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    // The selected capsule wears the accent the user picked. Light mode tints
+    // its surface with the accent and writes in a deep version of it, as the
+    // fixed pale blue and navy did; dark mode fills with the accent outright
+    // and takes whichever of black or white reads on it, since a green or
+    // monochrome accent cannot carry white.
+    final accent = ref.watch(accentProvider);
+    final selectedBg = dark
+        ? accent
+        : Color.alphaBlend(
+            accent.withValues(alpha: 0.20),
+            Colors.white,
+          );
+    final selectedFg = dark
+        ? (ThemeData.estimateBrightnessForColor(accent) == Brightness.dark
+              ? Colors.white
+              : Colors.black)
+        : Color.alphaBlend(
+            accent.withValues(alpha: 0.75),
+            const Color(0xFF1C1B1F),
+          );
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(25),
+      ),
+      padding: const EdgeInsets.all(4),
+      child: Row(
+        children: modes.map((mode) {
+          final isSelected = _readingMode == mode.$1;
+          return Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                _setReadingMode(mode.$1);
+                afterChange?.call();
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOut,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: isSelected ? selectedBg : Colors.transparent,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      mode.$2,
+                      size: 16,
+                      color: isSelected
+                          ? selectedFg
+                          : dark
+                          ? Colors.white70
+                          : Colors.black,
+                    ),
+                    const SizedBox(width: 5),
+                    Flexible(
+                      child: Text(
+                        mode.$3,
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isSelected
+                              ? selectedFg
+                              : dark
+                              ? Colors.white70
+                              : Colors.black,
+                          fontSize: 12.5,
+                          fontWeight: isSelected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // Active/current accent — resolved from the active color scheme preset.
+  Color get _activeGreen => Theme.of(context).colorScheme.primary;
+
+  Future<void> _loadChapter(int chapterIndex) async {
+    if (_loadedChapterIndices.contains(chapterIndex)) return;
+
+    final chapter = widget.allChapters[chapterIndex];
+    MangaSource? source;
+    if (widget.sourceId != null) {
+      source = getSourceBySourceId(widget.sourceId!);
+    }
+    source ??= ref.read(currentSourceProvider);
+
+    if (source == null) return;
+    final src = source;
+
+    try {
+      final List<String> newPages;
+      if (_downloadedChapters.contains(chapter.id)) {
+        // Offline-first: use the page URLs persisted when the chapter was
+        // downloaded so no network is needed to open it.
+        final download = await DatabaseHelper.instance.getDownload(
+          widget.mangaId,
+          chapter.id,
+        );
+        final stored = download?['pageUrls'];
+        final storedList = stored is String && stored.isNotEmpty
+            ? (jsonDecode(stored) as List).cast<String>()
+            : null;
+        if (storedList != null && storedList.isNotEmpty) {
+          newPages = storedList;
+        } else {
+          // Legacy download (pre page-URL caching) -> network fallback.
+          newPages = await SourceCache.pageUrls(
+            sourceId: src.id,
+            chapterId: chapter.id,
+            fetch: () => src.getPageUrls(chapter.id),
+          );
+        }
+      } else {
+        newPages = await SourceCache.pageUrls(
+          sourceId: src.id,
+          chapterId: chapter.id,
+          fetch: () => src.getPageUrls(chapter.id),
+        );
+      }
+      if (!mounted) return;
+
+      List<String?>? locals;
+      if (_downloadedChapters.contains(chapter.id)) {
+        locals = await ChapterDownloader.localPathsForChapter(
+          mangaId: widget.mangaId,
+          chapterId: chapter.id,
+          pages: newPages,
+        );
+        if (!mounted) return;
+      }
+
+      setState(() {
+        _pages.addAll(newPages);
+        _pagesChapters.addAll(newPages.map((_) => chapterIndex));
+        // A chapter that continues the previous one restarts the page indices,
+        // so the flash guard has to forget where it left off or the new
+        // chapter's first page would be treated as already flashed.
+        _flashedPage = -1;
+        if (locals != null) {
+          _pageFiles.addAll(locals);
+        } else {
+          _pageFiles.addAll(newPages.map((_) => null));
+        }
+        _loadedChapterIndices.add(chapterIndex);
+      });
+      // New pages entered the list; let the next tick re-center the preload
+      // window on the reader's actual position.
+      _prefetchAnchorPage = -1;
+      if (_needsRestore) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _restorePosition());
+      } else if (_pendingJumpPage != null) {
+        final target = _pendingJumpPage!;
+        _pendingJumpPage = null;
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _jumpToPage(target),
+        );
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _prefetchNearbyPages();
+          _maybeShowToast();
+        }
+      });
+    } catch (e) {
+      debugPrint('Error loading chapter: $e');
+    }
+  }
+
+  Future<void> _loadNextChapter() async {
+    final nextIndex = _currentChapterIndex + 1;
+    if (nextIndex >= widget.allChapters.length) {
+      setState(() => _hasMoreChapters = false);
+      return;
+    }
+    setState(() => _isLoadingNextChapter = true);
+    _currentChapterIndex = nextIndex;
+    await _loadChapter(_currentChapterIndex);
+    if (mounted) {
+      setState(() => _isLoadingNextChapter = false);
+    }
+  }
+
+  /// Loads the chapter before the frontmost loaded one and PREPENDS its pages
+  /// to the list, then shifts the view back to what the reader was showing.
+  /// `_currentChapterIndex` stays unchanged (it tracks the newest loaded
+  /// chapter, which forward-navigation and progress-saving depend on).
+  Future<void> _loadPreviousChapter() async {
+    if (_isLoadingPreviousChapter) return;
+    final frontChapter = _pagesChapters.isNotEmpty
+        ? _pagesChapters.first
+        : _currentChapterIndex;
+    final prevIndex = frontChapter - 1;
+    if (prevIndex < 0 || prevIndex >= widget.allChapters.length) return;
+    if (_loadedChapterIndices.contains(prevIndex)) return;
+    _isLoadingPreviousChapter = true;
+
+    final chapter = widget.allChapters[prevIndex];
+    MangaSource? source;
+    if (widget.sourceId != null) {
+      source = getSourceBySourceId(widget.sourceId!);
+    }
+    source ??= ref.read(currentSourceProvider);
+    if (source == null) {
+      _isLoadingPreviousChapter = false;
+      return;
+    }
+    final src = source;
+
+    try {
+      final List<String> newPages;
+      if (_downloadedChapters.contains(chapter.id)) {
+        final download = await DatabaseHelper.instance.getDownload(
+          widget.mangaId,
+          chapter.id,
+        );
+        final stored = download?['pageUrls'];
+        final storedList = stored is String && stored.isNotEmpty
+            ? (jsonDecode(stored) as List).cast<String>()
+            : null;
+        if (storedList != null && storedList.isNotEmpty) {
+          newPages = storedList;
+        } else {
+          newPages = await SourceCache.pageUrls(
+            sourceId: src.id,
+            chapterId: chapter.id,
+            fetch: () => src.getPageUrls(chapter.id),
+          );
+        }
+      } else {
+        newPages = await SourceCache.pageUrls(
+          sourceId: src.id,
+          chapterId: chapter.id,
+          fetch: () => src.getPageUrls(chapter.id),
+        );
+      }
+      if (!mounted) return;
+
+      List<String?>? locals;
+      if (_downloadedChapters.contains(chapter.id)) {
+        locals = await ChapterDownloader.localPathsForChapter(
+          mangaId: widget.mangaId,
+          chapterId: chapter.id,
+          pages: newPages,
+        );
+        if (!mounted) return;
+      }
+
+      final wasAt = _currentPageIndex;
+      final inserted = newPages.length;
+
+      setState(() {
+        _pages.insertAll(0, newPages);
+        _pagesChapters.insertAll(0, List.filled(inserted, prevIndex));
+        _pageFiles.insertAll(0, locals ?? List.filled(inserted, null));
+        _loadedChapterIndices.add(prevIndex);
+      });
+      _prefetchAnchorPage = -1;
+
+      // The page under the reader moved forward by [inserted] slots; keep the
+      // view on it. Vertical mode estimates page height at 600 (matches the
+      // jump-to-page math used elsewhere).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_isHorizontal) {
+          if (_pageController.hasClients) {
+            _pageController.jumpToPage(wasAt + inserted);
+          }
+        } else if (_scrollController.hasClients) {
+          _scrollController.jumpTo((wasAt + inserted) * 600.0);
+        }
+        if (mounted) _maybeShowToast();
+      });
+    } catch (e) {
+      debugPrint('Error loading previous chapter: $e');
+    } finally {
+      _isLoadingPreviousChapter = false;
+    }
+  }
+
+  // --- CHAPTER TRANSITION TOAST ---
+
+  Future<void> _prefetchNearbyPages({int? lookahead}) async {
+    if (_pages.isEmpty) return;
+    // "Preload pages: Never" turns off every speculative fetch. Pages the
+    // reader is actually looking at still load; nothing is warmed ahead.
+    if (!_preloadAllowed) return;
+    // "Reduce memory consumption" is a real cap on how far ahead we are willing
+    // to hold pages, not just a cache ceiling, so low-memory readers stop
+    // pulling down pages they would only decode and throw away.
+    final ahead = lookahead ??
+        MemoryProfile.forReduceMemory(_reduceMemory).prefetchWindow;
+    final current = _currentPageIndex;
+    // Re-center the window only when the anchor actually moved, otherwise a
+    // busy scroll ticker would re-schedule the same downloads repeatedly.
+    if (current == _prefetchAnchorPage) return;
+    _prefetchAnchorPage = current;
+
+    final start = (current - 2).clamp(0, _pages.length - 1);
+    final end = (current + ahead).clamp(0, _pages.length - 1);
+    // Snapshot the URLs to prefetch up front: the loop below awaits downloads,
+    // and switching chapters mid-loop clears _pages, which would otherwise make
+    // _pages[i] throw a RangeError on the next iteration.
+    final targets = <String>[];
+    for (var i = start; i <= end && i < _pages.length; i++) {
+      final ref = _pages[i];
+      if (!ref.startsWith('http')) continue;
+      if (_prefetchScheduled.contains(ref)) continue;
+      targets.add(ref);
+    }
+    _prefetchScheduled.addAll(targets);
+    for (final ref in targets) {
+      try {
+        await AppImageCache.instance.manager.getSingleFile(
+          ref,
+          headers: _activeRequestHeaders,
+        );
+      } catch (_) {
+        // Swallow: download failures are surfaced by the image widget itself.
+      }
+    }
+  }
+
+  /// Gently warms the chapter AFTER the one the reader is currently finishing,
+  /// so advancing to it feels instant. Only runs when the reader is on the
+  /// last few pages of an in-memory chapter, the next chapter exists, and the
+  /// user enabled "Pre-cache next chapter" in Storage settings.
+  void _precacheNextChapterPages() {
+    if (_isPrecachingNextChapter) return;
+    if (_pages.isEmpty ||
+        _pagesChapters.isEmpty ||
+        _currentPageIndex >= _pages.length) {
+      return;
+    }
+    if (!ref.read(cacheSettingsProvider).precacheNextChapter) return;
+
+    final currentChapter = _pagesChapters[_currentPageIndex];
+    // Walk to the last page that belongs to this same chapter.
+    var lastPageOfChapter = _currentPageIndex;
+    for (var i = _currentPageIndex + 1; i < _pagesChapters.length; i++) {
+      if (_pagesChapters[i] != currentChapter) break;
+      lastPageOfChapter = i;
+    }
+    // Only engage within the final ~2 pages of the chapter.
+    if (lastPageOfChapter - _currentPageIndex > 2) return;
+
+    final nextIndex = currentChapter + 1;
+    if (nextIndex >= widget.allChapters.length) return;
+    if (_loadedChapterIndices.contains(nextIndex)) return;
+
+    _precacheChapterPages(nextIndex);
+  }
+
+  Future<void> _precacheChapterPages(int chapterIndex) async {
+    if (_isPrecachingNextChapter) return;
+    final chapter = widget.allChapters[chapterIndex];
+    // Chapters stored locally are read from disk instantly — nothing to warm.
+    if (_downloadedChapters.contains(chapter.id)) return;
+    _isPrecachingNextChapter = true;
+    try {
+      MangaSource? source;
+      if (widget.sourceId != null) {
+        source = getSourceBySourceId(widget.sourceId!);
+      }
+      source ??= ref.read(currentSourceProvider);
+      if (source == null) return;
+      final src = source;
+
+      final pages = await SourceCache.pageUrls(
+        sourceId: src.id,
+        chapterId: chapter.id,
+        fetch: () => src.getPageUrls(chapter.id),
+      );
+      if (!mounted) return;
+
+      // Warm the first handful of pages of the next chapter into the disk
+      // cache so the chapter boundary reads like a normal page turn.
+      final limit = pages.length < 6 ? pages.length : 6;
+      for (var i = 0; i < limit; i++) {
+        final url = pages[i];
+        if (!url.startsWith('http')) continue;
+        try {
+          await AppImageCache.instance.manager.getSingleFile(
+            url,
+            headers: _activeRequestHeaders,
+          );
+        } catch (_) {
+          // Swallow: the page widget surfaces any real failure when reached.
+        }
+      }
+    } catch (e) {
+      debugPrint('Error pre-caching chapter ${chapterIndex + 1}: $e');
+    } finally {
+      _isPrecachingNextChapter = false;
+    }
+  }
+
+  void _handleScrollTicker() {
+    final pos = _scrollController.position;
+    _flashOnPage(_currentPageIndex);
+    // Warm the on-disk cache for pages a little ahead while scrolling.
+    _prefetchNearbyPages();
+    // When the reader reaches the last few pages of a chapter, silently warm
+    // the NEXT chapter's pages too so chapter transitions are instant.
+    _precacheNextChapterPages();
+    // Once the reader moves off the landing page, re-arm the adjacent-chapter
+    // loaders so real backward swipes still work.
+    if (_suppressAdjacentAutoLoad && pos.pixels > 800) {
+      _suppressAdjacentAutoLoad = false;
+    }
+    // Load the previous chapter only on a real backward pull at the very top
+    // (scrolled below zero, moving further back). Floating within the first
+    // 800px must NOT trigger it: that's what used to prepend a whole chapter
+    // and shift the view under the reader "by itself".
+    final movingBack = pos.pixels < _lastScrollPixels;
+    _lastScrollPixels = pos.pixels;
+    if (!_suppressAdjacentAutoLoad &&
+        pos.pixels < 0 &&
+        movingBack &&
+        !_isLoadingPreviousChapter) {
+      _loadPreviousChapter();
+    }
+    if (pos.pixels >= pos.maxScrollExtent - 800 &&
+        !_isLoadingNextChapter &&
+        _hasMoreChapters) {
+      _loadNextChapter();
+    }
+    _maybeShowToast();
+    _scrollStopTimer?.cancel();
+    _scrollStopTimer = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted || _toastOpacity <= 0) return;
+      _scheduleToastDismiss(delay: const Duration(milliseconds: 1000));
+    });
+  }
+
+  void _maybeShowToast() {
+    if (!_showChapterPopup) return;
+    if (_pages.isEmpty || _pagesChapters.isEmpty) return;
+    final ci = _pagesChapters[_currentPageIndex];
+    if (ci == _toastShownChapter || ci < 0 || ci >= widget.allChapters.length) {
+      return;
+    }
+    _toastShownChapter = ci;
+    _toastTimer?.cancel();
+    _setToastOpacity(1);
+    _scheduleToastDismiss();
+  }
+
+  void _setToastOpacity(double value) {
+    if (_toastOpacity == value) return;
+    setState(() => _toastOpacity = value);
+  }
+
+  void _scheduleToastDismiss({
+    Duration delay = const Duration(milliseconds: 4000),
+  }) {
+    _toastTimer?.cancel();
+    _toastTimer = Timer(delay, () {
+      if (mounted) _setToastOpacity(0);
+    });
+  }
+
+  Widget? _buildChapterToast() {
+    final chi = _toastShownChapter;
+    if (chi < 0 || chi >= widget.allChapters.length) return null;
+    final ch = widget.allChapters[chi];
+    final label = ch.chapterNumber == 'Chapter'
+        ? ch.title
+        : AppLocalizations.of(context).chapterNum(ch.chapterNumber);
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 110,
+      child: IgnorePointer(
+        child: AnimatedOpacity(
+          opacity: _toastOpacity,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOut,
+          child: Center(child: _ChapterPageToast(label: label)),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _autosaveProgress() async {
+    if (_pages.isEmpty || _loadedChapterIndices.isEmpty) return;
+    final page = _currentPageIndex;
+    final chapter = _readChapterIndex;
+    if (page == _autoSavedPage && chapter == _autoSavedChapter) return;
+    // Crossing into a later chapter means the previous one was finished -- the
+    // one moment in the reader worth a firm tap. `_autoSavedChapter` starts at
+    // -1, so the very first save (opening a chapter) stays silent.
+    final finishedChapter = _autoSavedChapter >= 0 && chapter > _autoSavedChapter;
+    _autoSavedPage = page;
+    _autoSavedChapter = chapter;
+    if (finishedChapter) appHaptic(ref, AppHaptic.medium);
+    await _saveCascadingReadProgress();
+  }
+
+  // Tracks reading time while the reader is open so the statistics charts get
+  // honest per-manga minutes. Flushed to the `reading_time` table on lifecycle
+  // pauses and on dispose; a process kill loses at most one session.
+  final Stopwatch _sessionStopwatch = Stopwatch();
+  int _flushedSessionSeconds = 0;
+
+  Future<void> _flushSessionTime() async {
+    if (!_sessionStopwatch.isRunning) return;
+    final elapsed = _sessionStopwatch.elapsed.inSeconds;
+    final pending = elapsed - _flushedSessionSeconds;
+    if (pending < 45) return;
+    final minutes = pending ~/ 60;
+    if (minutes <= 0) return;
+    _flushedSessionSeconds += minutes * 60;
+    await DatabaseHelper.instance.addReadingTime(widget.mangaId, minutes);
+  }
+
+  // Persist progress when the app is backgrounded or about to be killed, so a
+  // force-stop / OOM right after leaving the reader doesn't lose the position.
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    if (!mounted || _pages.isEmpty) return;
+    final now = MediaQuery.orientationOf(context);
+    if (_lastReaderOrientation == null) {
+      _lastReaderOrientation = now;
+      return;
+    }
+    if (now == _lastReaderOrientation) return;
+    _lastReaderOrientation = now;
+    if (_isHorizontal && _pageController.hasClients) {
+      _savedHorizontalPage = (_pageController.page ?? _currentPageIndex)
+          .round()
+          .clamp(0, _pages.length - 1);
+    } else if (!_isHorizontal && _scrollController.hasClients) {
+      _savedScrollOffset = _scrollController.offset;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _pages.isEmpty) return;
+      if (_isHorizontal) {
+        if (_pageController.hasClients) {
+          _pageController.jumpToPage(
+            _savedHorizontalPage.clamp(0, _pages.length - 1),
+          );
+        }
+      } else {
+        if (_scrollController.hasClients) {
+          final max = _scrollController.position.maxScrollExtent;
+          _scrollController.jumpTo(
+            _savedScrollOffset.clamp(0.0, max),
+          );
+        }
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _autosaveProgress();
+      _flushSessionTime();
+    }
+    // Returning to a backgrounded immersive reader re-hides the system bars.
+    if (state == AppLifecycleState.resumed && !_showControls) {
+      _applySystemUiMode();
+    }
+  }
+
+  Future<void> _saveCascadingReadProgress() async {
+    if (_loadedChapterIndices.isEmpty || _isSaving) return;
+    _isSaving = true;
+
+    final currentChapter = widget.allChapters[_currentChapterIndex];
+    final currentIndex = _currentChapterIndex;
+
+    // `lastReadChapter` is a threshold counted from the oldest chapter:
+    // reading the chapter at index `i` means the first `i + 1` chapters are
+    // read. (Previously this was computed as `totalChapters - i`, which made
+    // reading the first chapter mark every chapter as read.)
+    final position = (currentIndex + 1).toDouble();
+
+    await DatabaseHelper.instance.markChapterAsRead(
+      widget.mangaId,
+      currentChapter.id,
+      position,
+    );
+
+    await DatabaseHelper.instance.saveMangaProgress(
+      mangaId: widget.mangaId,
+      title: widget.mangaTitle ?? 'Unknown',
+      coverUrl: widget.mangaCoverUrl,
+      sourceId: widget.sourceId,
+      totalChapters: widget.totalChapters,
+      lastReadChapter: position,
+      lastReadPage: _pages.isEmpty ? 0 : _currentPageIndex,
+    );
+
+    // Refresh the home screen widget with the latest reading history.
+    await WidgetService.refresh();
+
+    bumpHistoryRevision(ref);
+    _isSaving = false;
+  }
+
+  // --- CHAPTER DOWNLOADS ---
+
+  Future<void> _loadProgress() async {
+    final row = await DatabaseHelper.instance.getManga(widget.mangaId);
+    if (!mounted) return;
+    setState(() {
+      _lastReadChapter = row?['lastReadChapter'] is num
+          ? (row!['lastReadChapter'] as num).toDouble()
+          : -1;
+    });
+  }
+
+  Future<void> _loadDownloads() async {
+    final rows = await DatabaseHelper.instance.getDownloads(widget.mangaId);
+    final ids = <String>{};
+    for (final row in rows) {
+      final chapterId = row['chapterId'] as String? ?? '';
+      if (chapterId.isEmpty) continue;
+      if (await ChapterDownloader.isDownloaded(widget.mangaId, chapterId)) {
+        ids.add(chapterId);
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _downloadedChapters
+        ..clear()
+        ..addAll(ids);
+    });
+  }
+
+  MangaSource? _resolveSource() {
+    if (widget.sourceId != null) {
+      final byId = getSourceBySourceId(widget.sourceId!);
+      if (byId != null) return byId;
+    }
+    return ref.read(currentSourceProvider);
+  }
+
+  /// Polls a job row until it reaches a terminal state, mirroring its page
+  /// progress into the reader's inline indicator for [chapterId].
+  ///
+  /// The reader is not the downloader's owner, so a chapter that is still
+  /// running when the user navigates away is simply left running — the service
+  /// keeps going and the notification keeps reporting.
+  Future<bool> _awaitJob(String? jobId, String chapterId) async {
+    if (jobId == null) return false;
+    final task = _ChapterDownloadTask()..jobId = jobId;
+    setState(() => _activeDownloads[chapterId] = task);
+    _refreshTray();
+
+    while (mounted) {
+      final job = await DownloadScheduler.load(jobId);
+      if (!mounted) break;
+      if (job == null) {
+        setState(() => _activeDownloads.remove(chapterId));
+        _refreshTray();
+        return false;
+      }
+      task
+        ..done = job.donePages
+        ..total = job.totalPages;
+      if (job.status.isOpen) {
+        setState(() {});
+        _refreshTray();
+        await Future<void>.delayed(const Duration(milliseconds: 400));
+        continue;
+      }
+      setState(() => _activeDownloads.remove(chapterId));
+      _refreshTray();
+      return job.status == DownloadJobStatus.completed;
+    }
+
+    // Reader disposed mid-download: the job keeps running, just stop tracking.
+    _activeDownloads.remove(chapterId);
+    return false;
+  }
+
+  Future<void> _confirmRemoveDownload(String chapterId, String title) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        final dark = Theme.of(context).brightness == Brightness.dark;
+        final l = AppLocalizations.of(context);
+        return AlertDialog(
+          backgroundColor: dark ? amoled(context, 0xFF2C2C2E) : Colors.white,
+          title: Text(
+            l.readerRemoveDownloadTitle,
+            style: TextStyle(
+              color: dark
+                  ? Colors.white
+                  : Theme.of(context).colorScheme.onSurface,
+            ),
+          ),
+          content: Text(
+            title.isEmpty ? l.readerThisChapter : title,
+            style: TextStyle(
+              color: dark ? Colors.white70 : const Color(0xFF49454F),
+              fontSize: 14,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: Text(
+                l.cancel,
+                style: TextStyle(
+                  color: dark ? Colors.white70 : const Color(0xFF49454F),
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text(l.remove, style: const TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirmed != true) return;
+
+    await ChapterDownloader.removeChapterFiles(widget.mangaId, chapterId);
+    await DatabaseHelper.instance.removeDownload(widget.mangaId, chapterId);
+    if (!mounted) return;
+
+    setState(() => _downloadedChapters.remove(chapterId));
+    bumpDownloadsRevision(ref);
+    _refreshTray();
+
+    final index = widget.allChapters.indexWhere((c) => c.id == chapterId);
+    if (index != -1) _refreshLoadedChapterFiles(index);
+  }
+
+  // --- CHAPTER TRAY SELECTION MODE ---
+
+  void _enterSelection(String id) {
+    setState(() {
+      _selectionMode = true;
+      _selectedIds.add(id);
+    });
+    // Jump the tray to full height so the selection actions stay visible. The
+    // side panel is already full height and has no attached sheet controller,
+    // so there is nothing to animate there.
+    if (_trayExtentController.isAttached) {
+      _trayExtentController.animateTo(
+        1.0,
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOut,
+      );
+    }
+    _refreshTray();
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (!_selectedIds.add(id)) {
+        _selectedIds.remove(id);
+      }
+      if (_selectedIds.isEmpty) _selectionMode = false;
+    });
+    _refreshTray();
+  }
+
+  void _exitSelection() {
+    setState(() {
+      _selectedIds.clear();
+      _selectionMode = false;
+    });
+    _refreshTray();
+  }
+
+  // Adds every chapter between the min and max indices of the current
+  // selection, then keeps just that contiguous range selected.
+  void _selectChapterRange() {
+    final chapters = widget.allChapters;
+    if (chapters.isEmpty || _selectedIds.isEmpty) return;
+    final indices = <int>[
+      for (var i = 0; i < chapters.length; i++)
+        if (_selectedIds.contains(chapters[i].id)) i,
+    ];
+    final minIndex = indices.reduce((a, b) => a < b ? a : b);
+    final maxIndex = indices.reduce((a, b) => a > b ? a : b);
+    setState(() {
+      _selectedIds
+        ..clear()
+        ..addAll(chapters.sublist(minIndex, maxIndex + 1).map((c) => c.id));
+    });
+    _refreshTray();
+  }
+
+  // True when every chapter in the tray is selected.
+  bool get _isAllSelectedInTray =>
+      widget.allChapters.isNotEmpty &&
+      _selectedIds.length == widget.allChapters.length;
+
+  // True when there are non-selected chapters between the extremes of the
+  // current selection (i.e. a range fill would actually select something).
+  bool get _hasSelectionGap {
+    final chapters = widget.allChapters;
+    if (_selectedIds.length < 2 || chapters.isEmpty) return false;
+    final indices = <int>[
+      for (var i = 0; i < chapters.length; i++)
+        if (_selectedIds.contains(chapters[i].id)) i,
+    ];
+    if (indices.length < 2) return false;
+    final minIndex = indices.reduce((a, b) => a < b ? a : b);
+    final maxIndex = indices.reduce((a, b) => a > b ? a : b);
+    return (maxIndex - minIndex + 1) > indices.length;
+  }
+
+  // Selects every chapter in the tray.
+  void _selectAllChapters() {
+    final chapters = widget.allChapters;
+    if (chapters.isEmpty) return;
+    setState(() {
+      _selectionMode = true;
+      _selectedIds
+        ..clear()
+        ..addAll(chapters.map((c) => c.id));
+    });
+    _refreshTray();
+  }
+
+  // Clears the selection and exits selection mode.
+  void _deselectAllChapters() {
+    _exitSelection();
+  }
+
+  // True when every selected chapter is in the "read" range.
+  bool get _isAllSelectedRead {
+    if (_selectedIds.isEmpty) return false;
+    for (var i = 0; i < widget.allChapters.length; i++) {
+      if (!_selectedIds.contains(widget.allChapters[i].id)) continue;
+      final isRead = _lastReadChapter >= 0 && (i + 1) <= _lastReadChapter;
+      if (!isRead) return false;
+    }
+    return true;
+  }
+
+  bool get _isSelectedDownloaded {
+    return _selectedIds.any(_downloadedChapters.contains);
+  }
+
+  void _toggleSelectedRead() {
+    // Batch read/unread toggle — flips the last-read threshold so all
+    // selected chapters fall on the opposite side.
+    final selectedIndices = <int>[
+      for (var i = 0; i < widget.allChapters.length; i++)
+        if (_selectedIds.contains(widget.allChapters[i].id)) i,
+    ];
+    if (selectedIndices.isEmpty) return;
+
+    final targetChapterNumbers = selectedIndices.map((i) => i + 1).toList();
+    final double newThreshold = _isAllSelectedRead
+        ? (targetChapterNumbers.reduce((a, b) => a < b ? a : b) - 1).toDouble()
+        : targetChapterNumbers.reduce((a, b) => a > b ? a : b).toDouble();
+
+    setState(() => _lastReadChapter = newThreshold);
+    DatabaseHelper.instance.saveMangaProgress(
+      mangaId: widget.mangaId,
+      title: widget.mangaTitle ?? 'Unknown',
+      coverUrl: widget.mangaCoverUrl,
+      sourceId: widget.sourceId,
+      totalChapters: widget.totalChapters,
+      lastTrayTotalChapters: widget.totalChapters,
+      lastReadChapter: newThreshold,
+    );
+    _exitSelection();
+  }
+
+  Future<void> _downloadSelectedChapters() async {
+    final chapters = widget.allChapters
+        .where((c) => _selectedIds.contains(c.id))
+        .toList();
+    _exitSelection();
+
+    final source = _resolveSource();
+    if (source == null || chapters.isEmpty) return;
+
+    final result = await DownloadRequests.enqueue(
+      context: context,
+      ref: ref,
+      source: source,
+      mangaId: widget.mangaId,
+      mangaTitle: widget.mangaTitle,
+      coverUrl: widget.mangaCoverUrl,
+      chapters: chapters,
+    );
+    if (!mounted) return;
+
+    final l = AppLocalizations.of(context);
+    if (result.blocked) {
+      showIosToast(context, message: l.dlsCellularBlocked);
+      return;
+    }
+    if (result.isEmpty) {
+      showIosToast(context, message: l.dlgDownloadNothingQueued);
+      return;
+    }
+
+    // Queued as one job, so the selection doesn't become N notifications and
+    // N foreground services. Track the first chapter inline as a hint of
+    // activity, then let the notification and Downloads screen carry it.
+    showIosToast(context, message: l.dlgQueuedDownload(result.queued));
+    _awaitJob(result.jobId, chapters.first.id);
+  }
+
+  Future<void> _deleteSelectedDownloads() async {
+    final selected = _selectedIds.toList();
+    _exitSelection();
+    for (final ch in widget.allChapters) {
+      if (!selected.contains(ch.id)) continue;
+      await ChapterDownloader.removeChapterFiles(widget.mangaId, ch.id);
+      await DatabaseHelper.instance.removeDownload(widget.mangaId, ch.id);
+    }
+    if (!mounted) return;
+    setState(() {
+      for (final id in selected) {
+        _downloadedChapters.remove(id);
+      }
+    });
+    bumpDownloadsRevision(ref);
+    _refreshTray();
+    showIosToast(
+      context,
+      message: AppLocalizations.of(context).deletedSelectedDownloads,
+    );
+  }
+
+  // Point already-loaded pages of a chapter at their local files (or back at
+  // the network when the download was removed).
+  Future<void> _refreshLoadedChapterFiles(int chapterIndex) async {
+    final start = _pagesChapters.indexOf(chapterIndex);
+    if (start == -1) return;
+    final end = _pagesChapters.lastIndexOf(chapterIndex);
+    final chapter = widget.allChapters[chapterIndex];
+
+    List<String>? locals;
+    if (_downloadedChapters.contains(chapter.id)) {
+      locals = await ChapterDownloader.localPathsForChapter(
+        mangaId: widget.mangaId,
+        chapterId: chapter.id,
+        pages: _pages.sublist(start, end + 1),
+      );
+    }
+    if (!mounted) return;
+    setState(() {
+      for (var i = start; i <= end; i++) {
+        _pageFiles[i] = locals != null ? locals[i - start] : null;
+      }
+    });
+  }
+
+  Future<void> _loadBookmarks() async {
+    final rows = await DatabaseHelper.instance.getBookmarks(widget.mangaId);
+    if (!mounted) return;
+    setState(() {
+      _bookmarkedKeys
+        ..clear()
+        ..addAll(
+          rows.map(
+            (r) => _bookmarkKey(
+              r['chapterId'] as String? ?? '',
+              (r['pageIndex'] as int?) ?? 0,
+            ),
+          ),
+        );
+    });
+  }
+
+  Future<void> _toggleBookmark() async {
+    if (_pages.isEmpty || _currentChapterIndex < 0) return;
+
+    final pageIndex = _currentPageIndex.clamp(0, _pages.length - 1);
+
+    final chapter = widget.allChapters[_currentChapterIndex];
+    final pageUrl = _pages[pageIndex];
+    final note = AppLocalizations.of(
+      context,
+    ).readerSavedFromChapter(chapter.title);
+
+    final existing = await DatabaseHelper.instance.findBookmarkId(
+      mangaId: widget.mangaId,
+      chapterId: chapter.id,
+      pageIndex: pageIndex,
+    );
+    if (existing != null) {
+      await DatabaseHelper.instance.deleteBookmark(existing);
+      if (mounted) {
+        setState(() {
+          _bookmarkedKeys.remove(_bookmarkKey(chapter.id, pageIndex));
+        });
+        showIosToast(
+          context,
+          message: AppLocalizations.of(
+            context,
+          ).readerBookmarkRemovedNice(chapter.title, pageIndex + 1),
+          duration: const Duration(seconds: 2),
+        );
+      }
+      return;
+    }
+
+    await DatabaseHelper.instance.addBookmark(
+      mangaId: widget.mangaId,
+      chapterId: chapter.id,
+      chapterTitle: chapter.title,
+      pageIndex: pageIndex,
+      pageUrl: pageUrl,
+      note: note,
+    );
+    if (mounted) {
+      setState(() {
+        _bookmarkedKeys.add(_bookmarkKey(chapter.id, pageIndex));
+      });
+      showIosToast(
+        context,
+        message: AppLocalizations.of(
+          context,
+        ).readerBookmarked(chapter.title, pageIndex + 1),
+        duration: const Duration(seconds: 2),
+      );
+    }
+  }
+
+  // --- COLOR CORRECTION FILTER ---
+
+  List<double> _buildColorMatrix() {
+    final contrast = _contrast / 100;
+    final brightness = (_brightness - 100) * 255 / 100;
+    final s = _sepia / 100;
+    final ws = _warm / 100;
+
+    const sepia = [
+      [0.393, 0.769, 0.189, 0.0, 0.0],
+      [0.349, 0.686, 0.168, 0.0, 0.0],
+      [0.272, 0.534, 0.131, 0.0, 0.0],
+      [0.0, 0.0, 0.0, 1.0, 0.0],
+    ];
+
+    double m(int row, int col) {
+      final identity = row == col ? 1.0 : 0.0;
+      return identity * (1 - s) + sepia[row][col] * s;
+    }
+
+    double warmGain(int row) {
+      switch (row) {
+        case 0:
+          return 1 + ws * 0.18;
+        case 1:
+          return 1 + ws * 0.05;
+        case 2:
+          return 1 - ws * 0.16;
+      }
+      return 1;
+    }
+
+    return [
+      m(0, 0) * contrast * warmGain(0),
+      m(0, 1) * contrast * warmGain(0),
+      m(0, 2) * contrast * warmGain(0),
+      0,
+      brightness + ws * 8,
+      m(1, 0) * contrast * warmGain(1),
+      m(1, 1) * contrast * warmGain(1),
+      m(1, 2) * contrast * warmGain(1),
+      0,
+      brightness,
+      m(2, 0) * contrast * warmGain(2),
+      m(2, 1) * contrast * warmGain(2),
+      m(2, 2) * contrast * warmGain(2),
+      0,
+      brightness - ws * 12,
+      0,
+      0,
+      0,
+      1,
+      0,
+    ];
+  }
+
+  Widget _applyColorFilter(Widget child) {
+    if (_brightness == 100 && _contrast == 100 && _sepia == 0 && _warm == 0) {
+      return child;
+    }
+    return ColorFiltered(
+      colorFilter: ColorFilter.matrix(_buildColorMatrix()),
+      child: child,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final frosted = ref.watch(appearanceSettingsProvider).useFrostedGlass;
+    // Every glyph in both pills shares one colour, so it is resolved once
+    // here rather than per button.
+    final iconColor = dark ? Colors.white : const Color(0xFF1C1B1F);
+    final readChapterIndex = _readChapterIndex;
+    final currentChapter = widget.allChapters[readChapterIndex];
+    final chLabel = currentChapter.chapterNumber.isNotEmpty
+        ? currentChapter.chapterNumber
+        : '${readChapterIndex + 1}';
+    final activeSource = ref.watch(currentSourceProvider);
+    final Map<String, String>? activeHeaders = activeSource.headers;
+
+    final readerSource = widget.sourceId != null
+        ? getSourceBySourceId(widget.sourceId!)
+        : null;
+    final headers = readerSource?.headers ?? activeHeaders;
+    _activeRequestHeaders = headers;
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        await _saveCascadingReadProgress();
+        if (context.mounted) Navigator.of(context).pop(result);
+      },
+      child: Scaffold(
+        backgroundColor: _canvasBackground,
+        body: GestureDetector(
+          // Both gestures go through the 3x3 zone map rather than straight to
+          // one handler, so Settings > Reader actions actually decides what a
+          // tap in each part of the page does.
+          //
+          // The two are kept strictly exclusive: a press that ran the long-tap
+          // action is remembered, so the tap that follows can never add a
+          // second one. Otherwise a held finger would open the menu and then
+          // also turn the page it was held over.
+          onTapDown: _zoneTapDown,
+          onTapUp: _zoneTapUp,
+          onLongPressStart: _zoneLongPressStart,
+          child: Stack(
+            children: [
+              // --- VIEWPORT AREA ---
+              // The whole reader body sits inside the screen-level zoom
+              // viewport, so pinching magnifies the entire manga/page canvas
+              // at once while the floating chrome + immersive status bar above
+              // stay fixed.
+              _pages.isEmpty
+                  ? Center(
+                      child: CircularProgressIndicator(
+                        color: ref.watch(accentProvider),
+                      ),
+                    )
+                  : _buildReaderZoomViewport(
+                      _isHorizontal
+                          ? _buildHorizontalReader(headers)
+                          : _buildVerticalReader(headers),
+                    ),
+
+              // --- TOP APP BAR / MERGED CHROME BAR ---
+              // Portrait: back button and title. Landscape: the single merged
+              // bar, carrying the bottom pill's chapter navigation and sheet
+              // buttons as well, because two rows of chrome is the one thing
+              // landscape cannot afford.
+              //
+              // It sits at the top rather than the bottom because of the back
+              // button: a back affordance at the bottom of the screen reads as
+              // a footer control, and thumb-reach arguments for the bottom
+              // apply to chapter navigation, not to leaving a chapter.
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 200),
+                // Fully off-screen when hidden: the capsule is taller than a
+                // fixed 100px once the notch/safe-area inset and 48px content
+                // are accounted for, so hide by (safe area + full card height)
+                // or its bottom lip stays visible on notched phones.
+                top: _showControls
+                    ? 0
+                    : -(MediaQuery.of(context).padding.top + 96),
+                left: _chromeSideInset(context),
+                right: _chromeSideInset(context),
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    top: MediaQuery.of(context).padding.top + 8,
+                  ),
+                  child: _buildChromeCapsule(
+                    dark: dark,
+                    frosted: frosted,
+                    child: _mergeChromeInLandscape
+                        ? Row(
+                            children: [
+                              _buildReaderBackButton(iconColor),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                flex: 2,
+                                child: _buildReaderTitleBlock(
+                                  twoLine: false,
+                                  chapterLabel: chLabel,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              _buildPrevChapterButton(iconColor),
+                              _buildReaderProgressSlot(
+                                flexible: true,
+                                flex: 3,
+                              ),
+                              _buildNextChapterButton(iconColor),
+                              const SizedBox(width: 4),
+                              _buildReaderChromeDivider(),
+                              _buildChaptersButton(iconColor),
+                              _buildReaderSettingsButton(iconColor),
+                            ],
+                          )
+                        : Row(
+                            children: [
+                              _buildReaderBackButton(iconColor),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: _buildReaderTitleBlock(
+                                  twoLine: true,
+                                  chapterLabel: chLabel,
+                                ),
+                              ),
+                            ],
+                          ),
+                  ),
+                ),
+              ),
+
+              // --- PAGE THUMBNAIL STRIP (removed) ---
+
+              // --- KOTATSU-STYLE TOP STATUS BAR (immersive mode) ---
+              // Rendered only while the reader controls are hidden. The native
+              // system status bar is hidden by SystemChrome, so this replaces it
+              // entirely: a full-width row inside the SafeArea (clear of notches
+              // / punch-holes) with the reading progress on the left and the
+              // battery + clock on the right. No card surface, no elevation,
+              // no back button, and it never intercepts taps toggling controls.
+              // "Show information bar in reader" turns the whole overlay off,
+              // not just its text, so nothing is left floating over the page.
+              if (_showInfoBar)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 200),
+                    transitionBuilder: (child, animation) =>
+                        FadeTransition(opacity: animation, child: child),
+                    child: !_showControls
+                        ? _buildInfoBar(readChapterIndex, chLabel)
+                        : const SizedBox.shrink(
+                            key: ValueKey('noStatusBar'),
+                          ),
+                  ),
+                ),
+
+              // --- E-INK PAGE FLASH ---
+              // Positioned.fill so the colour actually covers the canvas: a
+              // childless ColoredBox would collapse to nothing in a Stack.
+              // Never takes input; it exists only to force a panel refresh and
+              // is fully transparent once the timer clears it.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: AnimatedOpacity(
+                    opacity: _flashOpacity,
+                    duration: Duration(milliseconds: _flashDurationMs),
+                    child: ColoredBox(
+                      color: _flashWith == kFlashBlack
+                          ? Colors.black
+                          : Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+
+              // --- BOTTOM CAPSULE BAR ---
+              // Portrait only. In landscape these controls live in the merged
+              // top bar, so this pill is not built at all rather than built
+              // empty.
+              if (!_mergeChromeInLandscape)
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 200),
+                  bottom: _showControls ? 16 : -100,
+                  left: _chromeSideInset(context),
+                  right: _chromeSideInset(context),
+                  child: _buildChromeCapsule(
+                    dark: dark,
+                    frosted: frosted,
+                    child: Row(
+                      children: [
+                        _buildPrevChapterButton(iconColor),
+                        _buildReaderProgressSlot(),
+                        _buildNextChapterButton(iconColor),
+                        const SizedBox(width: 4),
+                        _buildReaderChromeDivider(),
+                        _buildChaptersButton(iconColor),
+                        _buildReaderSettingsButton(iconColor),
+                      ],
+                    ),
+                  ),
+                ),
+
+              // --- CHAPTER TRANSITION TOAST ---
+              if (_toastShownChapter >= 0) _buildChapterToast()!,
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- VERTICAL READER BUILDER (Vertical / Webtoon) ---
+  Widget _buildVerticalReader(Map<String, String>? headers) {
+    // "Default webtoon zoom out" narrows the strip so long webtoon panels are
+    // readable without a pinch on every chapter. 0 leaves the page full width.
+    final zoomFraction = (100 - _webtoonZoomOut) / 100;
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(scrollbars: false),
+      child: ListView.builder(
+        controller: _scrollController,
+        physics: const BouncingScrollPhysics(),
+        itemCount: _pages.length + 1,
+        itemBuilder: (context, index) {
+          if (index < _pages.length) {
+            final page = _buildPageImage(
+              _pages[index],
+              headers,
+              index: index,
+              localPath: _pageFiles[index],
+            );
+            if (zoomFraction >= 1 && !_webtoonGaps) return page;
+            // "Gaps in webtoon mode" separates panels so the eye can find the
+            // seam between two images, which otherwise run together on a long
+            // strip. The gap is drawn in the canvas colour, never over a page.
+            return Container(
+              margin: _webtoonGaps
+                  ? const EdgeInsets.symmetric(vertical: 4, horizontal: 2)
+                  : EdgeInsets.zero,
+              color: _webtoonGaps ? _canvasBackground : null,
+              child: zoomFraction >= 1
+                  ? page
+                  : Center(
+                      child: FractionallySizedBox(
+                        widthFactor: zoomFraction,
+                        child: page,
+                      ),
+                    ),
+            );
+          }
+          return _buildLoadingIndicator();
+        },
+      ),
+    );
+  }
+
+  // --- HORIZONTAL READER BUILDER (Standard / Right-to-left) ---
+  Widget _buildHorizontalReader(Map<String, String>? headers) {
+    final isRtl = _readingMode == ReadingMode.rightToLeft;
+
+    Widget pageView = PageView.builder(
+      key: ValueKey(
+        'pager-${_readingMode.name}-$_useTwoPagesLayout',
+      ),
+      controller: _pageController,
+      // "Invert navigation control" flips which way a swipe moves, so a
+      // left-handed reader can page the other way. The page indices are
+      // untouched: only the direction of travel changes.
+      reverse: _invertNavigation,
+      itemCount: _pages.length,
+      onPageChanged: (index) {
+        _maybeShowToast();
+        _flashOnPage(index);
+        // Warm the on-disk cache for pages ahead of where the reader sits.
+        _prefetchNearbyPages();
+        // Once the reader moves off the landing page, re-arm the adjacent
+        // chapter loaders so real backward swipes still work.
+        if (_suppressAdjacentAutoLoad && index > 0) {
+          _suppressAdjacentAutoLoad = false;
+        }
+        // Swiping back into page 0 -> load the previous chapter so the pager
+        // can keep going backward across the chapter boundary.
+        if (!_suppressAdjacentAutoLoad && _lastPageIndex > 0 && index == 0) {
+          _loadPreviousChapter();
+        }
+        _lastPageIndex = index;
+      },
+      // Scrolling (flipping pages) is always allowed, whether the canvas is
+      // zoomed or not, so the user can read on at any zoom level.
+      physics: null,
+      itemBuilder: (context, index) {
+        final page = _buildPageImage(
+          _pages[index],
+          headers,
+          index: index,
+          localPath: _pageFiles[index],
+        );
+        // Un-mirror each page when the reader itself is mirrored for RTL.
+        return isRtl ? Transform.scale(scaleX: -1, child: page) : page;
+      },
+    );
+
+    // Mirror the whole viewport so swiping goes right-to-left naturally.
+    if (isRtl) {
+      pageView = Transform.scale(scaleX: -1, child: pageView);
+    }
+    return pageView;
+  }
+
+  // --- PAGE GEOMETRY ---
+
+  /// The colour behind the page, from Settings > Reader > Background.
+  /// "Default" keeps the black the reader has always used, which is the only
+  /// value that does not fight a page drawn with transparent margins.
+  Color get _canvasBackground {
+    switch (_background) {
+      case kBgWhite:
+        return Colors.white;
+      case kBgLight:
+        return const Color(0xFFF2F2F7);
+      case kBgDark:
+        return ref.read(appearanceSettingsProvider).amoledBlack
+            ? Colors.black
+            : const Color(0xFF1C1C1E);
+      case kBgBlack:
+      case kBgDefault:
+      default:
+        return Colors.black;
+    }
+  }
+
+  /// How a page is fitted into the viewport before pinch-zoom is applied.
+  ///
+  /// Only the paged modes honour this: in the scrolling modes a page is
+  /// always as wide as the screen, because anything narrower would break the
+  /// single continuous strip. The webtoon strip has its own zoom control.
+  BoxFit get _pageFit {
+    if (!_isHorizontal) return BoxFit.fitWidth;
+    switch (_scaleMode) {
+      case kScaleFitHeight:
+        return BoxFit.fitHeight;
+      case kScaleKeepAtStart:
+        // Natural size; _buildPageImage anchors it top-left and makes it
+        // pannable, so a "keep at start" page can still be read past its edge.
+        return BoxFit.none;
+      case kScaleFitCenter:
+      default:
+        return BoxFit.contain;
+    }
+  }
+
+  /// True when the page is drawn unscaled and needs its own pan surface.
+  bool get _pageNeedsPan => _isHorizontal && _scaleMode == kScaleKeepAtStart;
+
+  // --- REUSABLE IMAGE WIDGET ---
+  Widget _buildPageImage(
+    String url,
+    Map<String, String>? headers, {
+    required int index,
+    String? localPath,
+  }) {
+    // Changing the key (via retry token) recreates the image widget, which
+    // re-triggers the network request.
+    final key = ValueKey('$url#${_pageRetryTokens[index] ?? 0}');
+    final fit = _pageFit;
+    final decodeWidth = _pageDecodeWidth(context);
+    final Widget image;
+    if (localPath != null && File(localPath).existsSync()) {
+      image = SafeFileImage(
+        key: key,
+        file: File(localPath),
+        fit: fit,
+        decodeWidth: decodeWidth,
+        gaplessPlayback: true,
+        errorWidget: (context, path, error) =>
+            _buildPageError(index: index, localPath: localPath),
+      );
+    } else {
+      image = SafeNetworkImage(
+        key: key,
+        imageUrl: url,
+        fit: fit,
+        decodeWidth: decodeWidth,
+        httpHeaders: headers,
+        placeholder: (context, url) => SizedBox(
+          height: MediaQuery.sizeOf(context).height,
+          child: Center(
+            child: CircularProgressIndicator(
+              color: ref.watch(accentProvider),
+            ),
+          ),
+        ),
+        errorWidget: (context, url, error) =>
+            _buildPageError(index: index, error: error),
+      );
+    }
+    return _wrapKeepAtStart(_applyColorFilter(image));
+  }
+
+  /// The width, in physical pixels, that a page image is decoded at.
+  ///
+  /// Pages are declared at the size they are actually drawn: the viewport, or
+  /// the viewport height in the fit-height mode, where a portrait page can be
+  /// wider than the screen. Source scans are routinely larger than the phone
+  /// (a 1798x2560 page is ~18 MB decoded, drawn into 1080px), so this discards
+  /// pixels the screen never shows -- on every page turn and every webtoon
+  /// panel. Pinch-zoom still scales the canvas, so a page is soft past 1x; that
+  /// is the trade this reader makes to hold a chapter in memory on a small
+  /// device. "Keep at start" draws at natural size, so it keeps full
+  /// resolution.
+  int? _pageDecodeWidth(BuildContext context) {
+    if (_pageNeedsPan) return null;
+    final size = MediaQuery.sizeOf(context);
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final fitHeight = _isHorizontal && _scaleMode == kScaleFitHeight;
+    return ((fitHeight ? size.height : size.width) * dpr).round();
+  }
+
+  /// "Numbered pages" stamps the page counter onto the artwork itself, in the
+  /// bottom-trailing corner, so a printed or screenshotted page still says
+  /// which page it is. Off by default: it covers part of the image.
+  Widget _maybeStampPageNumber(Widget page) {
+    if (!_numberedPages || _pages.isEmpty) return page;
+    return Stack(
+      children: [
+        page,
+        Positioned(
+          right: 6,
+          bottom: 6,
+          child: IgnorePointer(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.45),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                '${_currentPageIndex + 1} / ${_pages.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "Keep at start" draws the page at its natural size, pinned to the
+  /// top-left of the viewport, and scrolls only when the page is larger than
+  /// the screen. Without this a page bigger than the viewport would be cropped
+  /// and its right-hand column unreadable.
+  Widget _wrapKeepAtStart(Widget image) {
+    if (!_pageNeedsPan) return _maybeStampPageNumber(image);
+    return InteractiveViewer(
+      minScale: 1,
+      maxScale: 1,
+      // Let the image keep its own intrinsic size; constraining it would make
+      // `BoxFit.none` centre the overflow instead of starting it top-left.
+      constrained: false,
+      alignment: Alignment.topLeft,
+      child: _maybeStampPageNumber(image),
+    );
+  }
+
+  // --- SCREEN-LEVEL ZOOM VIEWPORT ---
+  //
+  // Wraps the WHOLE reader body (pager or webtoon list) in one uniform
+  // transform: pinch or double-tap magnifies the entire page/canvas at once,
+  // not a single region, while the floating chrome + immersive status bar stay
+  // fixed on top. Pan with one finger (only in the horizontal pager) while
+  // zoomed; the webtoon list keeps its own scroll so you can keep reading.
+  Widget _buildReaderZoomViewport(Widget child) {
+    if (!_zoomEnabled) return child;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        _maybeResetScreenZoom();
+        _zoomViewportSize = constraints.biggest;
+        return ClipRect(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onDoubleTapDown: (d) => _zoomFocal = d.localPosition,
+            onDoubleTap: _toggleScreenZoom,
+            child: RawGestureDetector(
+              behavior: HitTestBehavior.opaque,
+              gestures: {
+                _ReaderZoomRecognizer: GestureRecognizerFactoryWithHandlers<
+                    _ReaderZoomRecognizer>(
+                  () => _ReaderZoomRecognizer(
+                    shouldOwnGesture: _shouldOwnZoomGesture,
+                  ),
+                  (instance) {
+                    instance.onStart = _onZoomStart;
+                    instance.onUpdate = _onZoomUpdate;
+                    instance.onEnd = (_) => _onZoomEnd();
+                  },
+                ),
+              },
+              child: ValueListenableBuilder<Matrix4>(
+                valueListenable: _screenZoom,
+                builder: (context, value, _) =>
+                    Transform(transform: value, child: child),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  // Single-finger drags are never taken over by the zoom transform: the inner
+  // pager/list keeps every un-zoomed drag so page flipping and webtoon
+  // scrolling work identically at any zoom level. Panning within a zoomed
+  // canvas is done with a two-finger drag.
+  bool _shouldOwnZoomGesture() => false;
+
+  void _onZoomStart(ScaleStartDetails details) {
+    if (!mounted) return;
+    _zoomScaleStart = _screenZoom.value.clone();
+  }
+
+  void _onZoomUpdate(ScaleUpdateDetails details) {
+    final base = _zoomScaleStart;
+    if (base == null) return;
+    final baseScale = base.getMaxScaleOnAxis();
+    final newScale = (baseScale * details.scale).clamp(1.0, 6.0);
+
+    // Pinch: scale the whole canvas about the fingers, keeping the spot fixed.
+    if (newScale != baseScale && newScale > 1.0) {
+      final focal = details.localFocalPoint;
+      final childFocal = MatrixUtils.transformPoint(Matrix4.inverted(base), focal);
+      final tx = focal.dx - newScale * childFocal.dx;
+      final ty = focal.dy - newScale * childFocal.dy;
+      _screenZoom.value = _zoomClampTranslation(
+        Matrix4.identity()
+          ..translateByDouble(tx, ty, 0, 1)
+          ..scaleByDouble(newScale, newScale, 1, 1),
+      );
+      return;
+    }
+
+    // Two-finger drag while already zoomed (focal point moves): pan.
+    if (baseScale > 1.0 && details.focalPointDelta != Offset.zero) {
+      final delta = details.focalPointDelta;
+      _screenZoom.value = _zoomClampTranslation(
+        base.clone()..translateByDouble(delta.dx, delta.dy, 0, 1),
+      );
+    }
+  }
+
+  void _onZoomEnd() {
+    if (!mounted) return;
+    final scale = _screenZoom.value.getMaxScaleOnAxis();
+    if (scale <= 1.02) _screenZoom.value = Matrix4.identity();
+    _zoomScaleStart = null;
+  }
+
+  Matrix4 _zoomClampTranslation(Matrix4 matrix) {
+    final s = matrix.getMaxScaleOnAxis();
+    if (s <= 1.0) return Matrix4.identity();
+    final size = _zoomViewportSize;
+    if (size == null || size.width <= 0 || size.height <= 0) return matrix.clone();
+    final t = matrix.getTranslation();
+    final dx = t.x.clamp(-(s - 1) * size.width, 0.0).toDouble();
+    final dy = t.y.clamp(-(s - 1) * size.height, 0.0).toDouble();
+    if (dx == t.x && dy == t.y) return matrix.clone();
+    return matrix.clone()..setTranslationRaw(dx, dy, t.z);
+  }
+
+  void _toggleScreenZoom() {
+    if (!mounted) return;
+    final current = _screenZoom.value.getMaxScaleOnAxis();
+    final target = current > 1.5 ? 1.0 : 2.5;
+    final focal = _zoomFocal;
+    final childFocal = MatrixUtils.transformPoint(
+      Matrix4.inverted(_screenZoom.value),
+      focal,
+    );
+
+    _zoomAnimController.stop();
+    if (_zoomAnimListener != null) {
+      _zoomAnimController.removeListener(_zoomAnimListener!);
+      _zoomAnimListener = null;
+    }
+    _zoomAnimController.value = 0.0;
+
+    void updateZoomMatrix() {
+      if (!mounted) return;
+      final t = Curves.easeInOutCubic.transform(_zoomAnimController.value);
+      final scale = current + (target - current) * t;
+      final tx = focal.dx - scale * childFocal.dx;
+      final ty = focal.dy - scale * childFocal.dy;
+      _screenZoom.value = _zoomClampTranslation(
+        Matrix4.identity()
+          ..translateByDouble(tx, ty, 0, 1)
+          ..scaleByDouble(scale, scale, 1, 1),
+      );
+    }
+
+    _zoomAnimListener = updateZoomMatrix;
+    _zoomAnimController.addListener(updateZoomMatrix);
+    _zoomAnimController.forward();
+  }
+
+  // Reset the screen zoom whenever the page set changes (new chapter / retry),
+  // so a stale matrix never carries across.
+  void _maybeResetScreenZoom() {
+    if (_zoomSeenPageCount != _pages.length) {
+      _zoomSeenPageCount = _pages.length;
+      if (_zoomAnimListener != null) {
+        _zoomAnimController.removeListener(_zoomAnimListener!);
+        _zoomAnimListener = null;
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _screenZoom.value = Matrix4.identity();
+      });
+    }
+  }
+
+  Future<void> _retryPage(int index, String? localPath) async {
+    if (index < 0 || index >= _pages.length) return;
+
+    // Drop any cached (possibly corrupt/partial) download so the retry starts
+    // from a fresh request. Local files are re-read from disk instead.
+    if (localPath == null) {
+      try {
+        await AppImageCache.instance.manager.removeFile(_pages[index]);
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    setState(() {
+      _pageRetryTokens[index] = (_pageRetryTokens[index] ?? 0) + 1;
+    });
+  }
+
+  Widget _buildPageError({
+    required int index,
+    String? localPath,
+    Object? error,
+  }) {
+    // A page that will not load says only "Failed to load page" on screen, and
+    // the reader's prefetch swallows the same failure silently, so a source
+    // whose images the app cannot fetch looks identical to a flaky network.
+    // The reason is what distinguishes them.
+    diagSoon(
+      'reader page ${index + 1}/${_pages.length} failed '
+      'local=${localPath != null} headers=${_activeRequestHeaders != null} '
+      'err=$error url=${index < _pages.length ? _pages[index] : "?"}',
+    );
+    return Container(
+      height: 200,
+      color: amoled(context, 0xFF1E1E20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(MdiIcons.imageMultipleOutline, color: Colors.white54, size: 32),
+          const SizedBox(height: 8),
+          Text(
+            AppLocalizations.of(context).readerFailedLoadPage,
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: () => _retryPage(index, localPath),
+            icon: const Icon(MdiIcons.refresh, size: 18),
+            label: Text(AppLocalizations.of(context).retry),
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // --- LOADING INDICATOR WIDGET ---
+  Widget _buildLoadingIndicator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 32),
+      alignment: Alignment.center,
+      child: _hasMoreChapters
+          ? Column(
+              children: [
+                CircularProgressIndicator(color: ref.watch(accentProvider)),
+                const SizedBox(height: 12),
+                Text(
+                  AppLocalizations.of(context).readerLoadingNextChapter,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
+            )
+          : Text(
+              AppLocalizations.of(context).readerReachedLatestChapter,
+              style: const TextStyle(color: Colors.white54, fontSize: 14),
+            ),
+    );
+  }
+}
+
+class _ReaderProgressTrack extends StatefulWidget {
+  const _ReaderProgressTrack({
+    required this.session,
+    required this.totalPages,
+    required this.chapterStart,
+    required this.chapterPageCount,
+    required this.isHorizontal,
+    required this.scrollController,
+    required this.pageController,
+    required this.onSeek,
+    required this.accent,
+    required this.reversed,
+  });
+
+  final int session;
+  final int totalPages;
+  final int chapterStart;
+  final int chapterPageCount;
+  final bool isHorizontal;
+  final ScrollController scrollController;
+  final PageController pageController;
+  final ValueChanged<int> onSeek;
+  final Color accent;
+
+  /// Whether the series reads right to left, which flips the track like the
+  /// reference's `setSliderReversed` for its reversed pager.
+  final bool reversed;
+
+  @override
+  State<_ReaderProgressTrack> createState() => _ReaderProgressTrackState();
+}
+
+class _ReaderProgressTrackState extends State<_ReaderProgressTrack> {
+  int _currentIndex = 0;
+  int _lastSession = -1;
+
+  // The thumb's home while a drag is under way. The reference drags its
+  // slider without seeking -- the page only moves when the drag ends -- so
+  // while tracking, the thumb is drawn from here and not from the pager,
+  // which nobody is moving.
+  double? _dragValue;
+  bool _tracking = false;
+  bool _changed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _lastSession = widget.session;
+    widget.scrollController.addListener(_onMoved);
+    widget.pageController.addListener(_onMoved);
+  }
+
+  @override
+  void didUpdateWidget(_ReaderProgressTrack oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // An explicit chapter switch resets the thumb to page 1 even when the
+    // controller listener never fires (jumpTo to the same offset no-ops).
+    if (widget.session != _lastSession) {
+      _lastSession = widget.session;
+      _currentIndex = widget.chapterStart;
+    }
+    if (oldWidget.scrollController != widget.scrollController) {
+      oldWidget.scrollController.removeListener(_onMoved);
+      widget.scrollController.addListener(_onMoved);
+    }
+    if (oldWidget.pageController != widget.pageController) {
+      oldWidget.pageController.removeListener(_onMoved);
+      widget.pageController.addListener(_onMoved);
+    }
+    if (oldWidget.chapterStart != widget.chapterStart) {
+      _currentIndex = widget.chapterStart;
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.scrollController.removeListener(_onMoved);
+    widget.pageController.removeListener(_onMoved);
+    super.dispose();
+  }
+
+  void _onMoved() {
+    if (widget.totalPages <= 0) return;
+    final int idx;
+    if (widget.isHorizontal) {
+      if (!widget.pageController.hasClients) return;
+      final page = widget.pageController.page;
+      if (page == null) return;
+      idx = page.round();
+    } else {
+      if (!widget.scrollController.hasClients) return;
+      const perPage = 600.0;
+      idx = (widget.scrollController.offset / perPage).floor();
+    }
+    // Absolute page index within the concatenated list.
+    final absolute = idx.clamp(0, widget.totalPages - 1);
+    if (absolute != _currentIndex) setState(() => _currentIndex = absolute);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final relativeMax = widget.chapterPageCount > 1
+        ? widget.chapterPageCount - 1
+        : 0;
+    final relative = (_currentIndex - widget.chapterStart).clamp(
+      0,
+      relativeMax,
+    );
+    final double value = _dragValue ?? relative.toDouble();
+
+    Widget slider = Slider(
+      // The same material slider every settings and library screen uses.
+      // A single-page chapter maps to a disabled track at the far right,
+      // standing in for the static full track the old dotted control drew.
+      min: 0,
+      max: relativeMax > 0 ? relativeMax.toDouble() : 1,
+      value: value > relativeMax ? relativeMax.toDouble() : value,
+      divisions: relativeMax > 0 ? relativeMax : null,
+      // The reference's floating label: the page under the thumb, numbered
+      // from 1 within the chapter like its PageLabelFormatter does.
+      label: '${value.round() + 1}',
+      onChanged: relativeMax > 0
+          ? (v) {
+              if (_tracking) {
+                // The reference drags silently: the thumb moves, the chapter
+                // waits for the release -- its ReaderActionsView only marks
+                // isSliderChanged while tracking and seeks in
+                // onStopTrackingTouch. Seeking per tick here would swim the
+                // pager beneath a moving thumb.
+                _changed = true;
+                setState(() => _dragValue = v);
+              } else {
+                // A value change that never started a drag is a track tap:
+                // the reference's non-tracking branch of onValueChange jumps
+                // outright.
+                widget.onSeek(widget.chapterStart + v.round());
+              }
+            }
+          : null,
+      onChangeStart: relativeMax > 0
+          ? (v) {
+              _tracking = true;
+              _changed = false;
+              setState(() => _dragValue = v);
+            }
+          : null,
+      onChangeEnd: relativeMax > 0
+          ? (v) {
+              _tracking = false;
+              if (!_changed) return; // A tap already seeked in onChanged.
+              setState(() => _dragValue = null);
+              widget.onSeek(widget.chapterStart + v.round());
+            }
+          : null,
+    );
+    // The floating page label paints with the theme's inverse pair by
+    // default -- Material's expressive slider fixes it at a grey bubble,
+    // the only piece of the control that ignores the appearance the rest
+    // obeys (the path of the track and the thumb are both drawn from the
+    // accent). Pointing the bubble at the scheme's own pair follows it in
+    // both appearances: accent with its on-color printed over it reads
+    // dark-on-bright in light mode and light-on-bright in dark.
+    final cs = Theme.of(context).colorScheme;
+    slider = SliderTheme(
+      data: SliderTheme.of(context).copyWith(
+        valueIndicatorColor: cs.primary,
+        valueIndicatorTextStyle: SliderTheme.of(
+          context,
+        ).valueIndicatorTextStyle?.copyWith(color: cs.onPrimary),
+        padding: EdgeInsets.zero,
+      ),
+      child: slider,
+    );
+    // A series read right to left flips the track, what the reference's
+    // setSliderReversed does for its reversed pager: forward means turning
+    // pages in reading order, so low numbers sit on the right.
+    if (widget.reversed) {
+      slider = Directionality(
+        textDirection: ui.TextDirection.rtl,
+        child: slider,
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [slider],
+    );
+  }
+}
+
+class _ChapterDownloadTask {
+  bool cancelled = false;
+  int done = 0;
+  int total = 0;
+
+  /// Download job backing this indicator, so a cancel can reach the scheduler
+  /// rather than trying to stop work the reader no longer owns.
+  String? jobId;
+
+  void cancel() => cancelled = true;
+}
+
+// --- READER PAGE ZOOM GESTURE RECOGNIZER ---
+//
+// A scale recognizer that only claims a drag when it should zoom or pan:
+// either two fingers are down (pinch on any page) or the page is already
+// zoomed (single-finger pan). In every other case it rejects immediately so
+// the pager / webtoon list keeps owning the scroll gesture.
+class _ReaderZoomRecognizer extends ScaleGestureRecognizer {
+  _ReaderZoomRecognizer({required this.shouldOwnGesture});
+
+  final bool Function() shouldOwnGesture;
+  int _pointers = 0;
+
+  @override
+  void addAllowedPointer(PointerDownEvent event) {
+    _pointers++;
+    super.addAllowedPointer(event);
+  }
+
+  @override
+  void didStopTrackingLastPointer(int pointer) {
+    _pointers--;
+    super.didStopTrackingLastPointer(pointer);
+  }
+
+  @override
+  void handleEvent(PointerEvent event) {
+    // Never reject on the DOWN event: the first finger of a fresh pinch lands
+    // alone and is not zoomed yet, but the second finger follows immediately.
+    // Reject only once a move shows it is a lone unzoomed drag, so normal
+    // swipes still pass to the pager/list.
+    if (event is! PointerDownEvent && !shouldOwnGesture() && _pointers < 2) {
+      resolve(GestureDisposition.rejected);
+      return;
+    }
+    super.handleEvent(event);
+  }
+}
+
+// --- CHAPTER TRANSITION TOAST WIDGET ---
+class _ChapterPageToast extends StatelessWidget {
+  final String label;
+
+  const _ChapterPageToast({required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final fg = dark ? Colors.white : const Color(0xFF1C1B1F);
+    final accent = dark
+        ? Colors.white70
+        : Theme.of(context).colorScheme.primary;
+    final border = dark ? Colors.white24 : Colors.black12;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xE6202020) : const Color(0xFAFFFFFF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: dark ? 0.4 : 0.12),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(MdiIcons.bookOutline, size: 15, color: accent),
+          const SizedBox(width: 7),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
