@@ -458,6 +458,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Bulgarian',
@@ -466,6 +467,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Bengali',
@@ -474,6 +476,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Catalan',
@@ -482,6 +485,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Czech',
@@ -490,6 +494,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Danish',
@@ -498,6 +503,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall German',
@@ -506,6 +512,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Greek',
@@ -514,6 +521,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall English',
@@ -522,6 +530,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Spanish',
@@ -530,6 +539,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Persian',
@@ -538,6 +548,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Finnish',
@@ -546,6 +557,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall French',
@@ -554,6 +566,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Hebrew',
@@ -562,6 +575,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Hindi',
@@ -570,6 +584,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Hungarian',
@@ -578,6 +593,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Indonesian',
@@ -586,6 +602,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Italian',
@@ -594,6 +611,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Icelandic',
@@ -602,6 +620,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Japanese',
@@ -610,6 +629,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Korean',
@@ -618,6 +638,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Kannada',
@@ -626,6 +647,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Malayalam',
@@ -634,6 +656,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Malay',
@@ -642,6 +665,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Nepali',
@@ -650,6 +674,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Dutch',
@@ -658,6 +683,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Norwegian',
@@ -666,6 +692,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Polish',
@@ -674,6 +701,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Portuguese',
@@ -682,6 +710,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Romanian',
@@ -690,6 +719,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Russian',
@@ -698,6 +728,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Slovak',
@@ -706,6 +737,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Slovenian',
@@ -714,6 +746,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Albanian',
@@ -722,6 +755,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Serbian',
@@ -730,6 +764,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Swedish',
@@ -738,6 +773,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Tamil',
@@ -746,6 +782,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Thai',
@@ -754,6 +791,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Turkish',
@@ -762,6 +800,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Ukrainian',
@@ -770,6 +809,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Vietnamese',
@@ -778,6 +818,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'MangaBall Chinese',
@@ -786,6 +827,7 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'text': 'MB',
       'iconUrl': 'https://mangaball.com/images/favicon.png',
       'isPinned': false,
+      'isEnabled': false,
     },
     {
       'name': 'AnzMangasHd',
