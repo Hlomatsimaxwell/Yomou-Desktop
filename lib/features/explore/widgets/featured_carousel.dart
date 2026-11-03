@@ -1135,7 +1135,7 @@ class _CarouselNavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -1143,10 +1143,10 @@ class _CarouselNavButton extends StatelessWidget {
         customBorder: const CircleBorder(),
         child: Ink(
           decoration: BoxDecoration(
-            color: (dark ? Colors.black : Colors.white).withValues(alpha: 0.78),
+            color: cs.surfaceContainerHighest,
             shape: BoxShape.circle,
             border: Border.all(
-              color: (dark ? Colors.white : Colors.black).withValues(alpha: 0.25),
+              color: cs.outlineVariant,
             ),
           ),
           child: Padding(
@@ -1154,7 +1154,7 @@ class _CarouselNavButton extends StatelessWidget {
             child: Icon(
               icon,
               size: 26,
-              color: dark ? Colors.white : Colors.black87,
+              color: cs.onSurface,
             ),
           ),
         ),
