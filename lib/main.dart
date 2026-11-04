@@ -297,13 +297,17 @@ class YomouApp extends ConsumerWidget {
     final theme = ref.watch(themeNotifierProvider);
     final language = ref.watch(appearanceSettingsProvider).language;
 
+    final hoverTileTheme = ListTileThemeData(
+      mouseCursor: WidgetStateProperty.all(SystemMouseCursors.click),
+    );
+
     return MaterialApp(
       title: 'Yomou',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       themeMode: theme.mode,
-      theme: theme.lightTheme,
-      darkTheme: theme.darkTheme,
+      theme: theme.lightTheme.copyWith(listTileTheme: hoverTileTheme),
+      darkTheme: theme.darkTheme.copyWith(listTileTheme: hoverTileTheme),
       locale: language == 'system' ? null : Locale(language),
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
