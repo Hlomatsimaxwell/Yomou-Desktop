@@ -63,10 +63,10 @@ class FaviconResolver {
   /// Homepage lookups in flight, so N tiles of one source share one fetch.
   static final Map<String, Future<List<String>>> _inFlight = {};
 
-  static const Duration _stale = Duration(days: 30);
+  static const Duration _stale = Duration(days: 90);
 
   /// How many homepage fetches may run at once.
-  static const int _maxConcurrent = 4;
+  static const int _maxConcurrent = 8;
 
   static int _active = 0;
   static final List<Completer<void>> _gateQueue = [];
@@ -215,8 +215,8 @@ class FaviconResolver {
   static final Dio _client = Dio(
     BaseOptions(
       headers: {'User-Agent': DioSource.defaultUserAgent},
-      connectTimeout: const Duration(seconds: 12),
-      receiveTimeout: const Duration(seconds: 12),
+      connectTimeout: const Duration(seconds: 6),
+      receiveTimeout: const Duration(seconds: 6),
       responseType: ResponseType.plain,
     ),
   );
