@@ -1851,8 +1851,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
 /// Persists the desktop window's last size and position on exit.
 class _YomouWindowListener extends WindowListener {
+  Timer? _saveTimer;
+
+  void _scheduleSave() {
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 500), () async {
+      try {
+        final size = await WindowManager.instance.getSize();
+        final position = await WindowManager.instance.getPosition();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setDouble('yomou.window.width', size.width);
+        await prefs.setDouble('yomou.window.height', size.height);
+        await prefs.setDouble('yomou.window.x', position.dx);
+        await prefs.setDouble('yomou.window.y', position.dy);
+      } catch (_) {}
+    });
+  }
+
+  @override
+  void onWindowResize() => _scheduleSave();
+
+  @override
+  void onWindowMove() => _scheduleSave();
+
   @override
   Future<void> onWindowClose() async {
+    _saveTimer?.cancel();
     try {
       final prefs = await SharedPreferences.getInstance();
       final size = await WindowManager.instance.getSize();
@@ -1861,9 +1885,7 @@ class _YomouWindowListener extends WindowListener {
       await prefs.setDouble('yomou.window.height', size.height);
       await prefs.setDouble('yomou.window.x', position.dx);
       await prefs.setDouble('yomou.window.y', position.dy);
-    } catch (_) {
-      // The window may already be gone; nothing to persist.
-    }
+    } catch (_) {}
     await WindowManager.instance.destroy();
   }
 }
