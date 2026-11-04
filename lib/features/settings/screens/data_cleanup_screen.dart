@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
 import 'package:yomou/core/cache/app_cache.dart';
+import 'package:yomou/core/database/database_helper.dart';
 import 'package:yomou/core/widgets/kotatsu_icon.dart';
 import 'package:yomou/core/widgets/responsive.dart';
 import 'package:yomou/core/widgets/ios/ios_toast.dart';
@@ -84,6 +85,12 @@ class _DataCleanupScreenState extends ConsumerState<DataCleanupScreen> {
                   Text(l.storageClearSubtitle(snapshot.data ?? l.storageUnknown)),
             ),
             onTap: () => _confirmClearCache(context, l),
+          ),
+          _row(
+            leading: const Icon(MdiIcons.databaseOutline),
+            title: 'Clear source cache',
+            subtitle: const Text('Stored details, chapter lists and previews'),
+            onTap: () => _clearSourceCache(),
           ),
         ],
       ))),
@@ -211,6 +218,19 @@ class _DataCleanupScreenState extends ConsumerState<DataCleanupScreen> {
     ref.invalidate(storageUsageProvider);
     showIosToastOnOverlay(overlay, message: l.storageClearDone);
     _usageFuture = AppImageCache.instance.usageLabel();
+    setState(() {});
+  }
+
+  Future<void> _clearSourceCache() async {
+    try {
+      final db = await DatabaseHelper.instance.database;
+      await db.delete('source_cache');
+    } catch (_) {}
+    if (!mounted) return;
+    showIosToastOnOverlay(
+      Overlay.of(context, rootOverlay: true),
+      message: 'Source cache cleared.',
+    );
     setState(() {});
   }
 }
