@@ -6,6 +6,7 @@ import 'package:yomou/data/providers/source_sort.dart';
 import 'package:yomou/features/settings/providers/cache_settings_provider.dart';
 import 'package:yomou/core/widgets/ios/ios_menu.dart';
 import 'package:yomou/core/widgets/ios/ios_toast.dart';
+import 'package:yomou/core/widgets/webview_support.dart';
 import 'package:yomou/features/source_management/screens/manga_grid_screen.dart';
 import 'package:yomou/features/source_management/screens/source_settings_screen.dart';
 import 'package:yomou/l10n/generated/app_localizations.dart';
@@ -137,11 +138,50 @@ class _ManageSourcesScreenState extends ConsumerState<ManageSourcesScreen> {
           ),
         ],
       ),
-      body: _buildList(
-        context,
-        filteredSources,
-        reorderable: reorderable,
-        canReorder: canReorder,
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!inAppWebViewAvailable)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: (dark ? Colors.white10 : Colors.black.withValues(alpha: 0.05)),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.language_outlined,
+                      size: 16,
+                      color: dark ? Colors.white70 : Colors.black54,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Some sources (Mangago, Bega Translation, MangaFire, …) rely on an '
+                        'embedded browser and are hidden on this platform. They remain available on '
+                        'Android, Windows and macOS.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: dark ? Colors.white70 : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: _buildList(
+              context,
+              filteredSources,
+              reorderable: reorderable,
+              canReorder: canReorder,
+            ),
+          ),
+        ],
       ),
     );
   }
