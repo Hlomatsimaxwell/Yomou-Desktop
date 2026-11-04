@@ -1,3 +1,4 @@
+import 'package:window_manager/legacy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,6 +73,32 @@ void main() async {
   if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
+  }
+
+  // Desktop window state: restore/save size and position between launches.
+  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    final prefs = await SharedPreferences.getInstance();
+    final savedWidth = prefs.getDouble('yomou.window.width') ?? 1280.0;
+    final savedHeight = prefs.getDouble('yomou.window.height') ?? 800.0;
+    final savedX = prefs.getDouble('yomou.window.x');
+    final savedY = prefs.getDouble('yomou.window.y');
+
+    await WindowManager.instance.ensureInitialized();
+    await WindowManager.instance.setPreventClose(true);
+    WindowManager.instance.addListener(_YomouWindowListener());
+    WindowManager.instance.waitUntilReadyToShow(
+      WindowOptions(center: savedX == null),
+      () async {
+        if (savedX != null && savedY != null) {
+          await WindowManager.instance.setPosition(Offset(savedX, savedY));
+        } else {
+          await WindowManager.instance.center();
+        }
+        await WindowManager.instance.setSize(Size(savedWidth, savedHeight));
+        await WindowManager.instance.show();
+        await WindowManager.instance.focus();
+      },
+    );
   }
 
   final mobile = Platform.isAndroid || Platform.isIOS;
@@ -1818,5 +1845,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     } finally {
       if (mounted) setState(() => _isContinuing = false);
     }
+  }
+}
+
+
+/// Persists the desktop window's last size and position on exit.
+class _YomouWindowListener extends WindowListener {
+  @override
+  Future<void> onWindowClose() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final size = await WindowManager.instance.getSize();
+      final position = await WindowManager.instance.getPosition();
+      await prefs.setDouble('yomou.window.width', size.width);
+      await prefs.setDouble('yomou.window.height', size.height);
+      await prefs.setDouble('yomou.window.x', position.dx);
+      await prefs.setDouble('yomou.window.y', position.dy);
+    } catch (_) {
+      // The window may already be gone; nothing to persist.
+    }
+    await WindowManager.instance.destroy();
   }
 }
