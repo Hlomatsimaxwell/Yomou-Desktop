@@ -120,3 +120,15 @@ The app is meant for personal use. Please support the official releases of the w
 - [Flutter](https://flutter.dev) and the packages in `pubspec.yaml`
 - Icons: [Material Design Icons](https://materialdesignicons.com/) (Pictogrammers), plus glyphs ported from Kotatsu-Redo
 - iOS sideloading inspiration: [LiveContainer](https://github.com/LiveContainer/LiveContainer), [SideStore](https://github.com/SideStore/SideStore)
+
+## Linux (desktop)
+
+After `flutter build linux`, package with:
+
+```bash
+./linux/install.sh
+```
+
+This installs the bundle to `~/.local/share/com.stunna.manga_reader`, symlinks the
+binary into `~/.local/bin/manga_reader`, and registers a `.desktop` entry in
+`~/.local/share/applications`, so the app appears in the system launcher.

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Yomou
+Comment=Manga reader desktop build
+Exec=__YOMOU_BIN__ %U
+Icon=com.stunna.manga_reader
+Terminal=false
+Categories=Entertainment;Graphics;Viewer;
+StartupNotify=true
+StartupWMClass=manga_reader
+MimeType=application/zip;application/x-tar;application/x-yomou-backup;
