@@ -1,6 +1,15 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yomou/core/cache/app_cache.dart';
+
+/// Larger defaults on desktop: disk is plentiful and re-downloading large
+/// chapter pages on slower sites is the dominant pain point.
+int _platformDefaultStaleDays() =>
+    (Platform.isLinux || Platform.isWindows || Platform.isMacOS) ? 90 : 30;
+
+int _platformDefaultMaxCacheObjects() =>
+    (Platform.isLinux || Platform.isWindows || Platform.isMacOS) ? 1000 : 200;
 
 /// Image-cache configuration surfaced in Settings > Storage and network.
 ///
@@ -30,9 +39,9 @@ class CacheSettings {
     required this.suggestionsRefreshMinutes,
   });
 
-  factory CacheSettings.defaults() => const CacheSettings(
-        staleDays: 30,
-        maxCacheObjects: 200,
+  factory CacheSettings.defaults() => CacheSettings(
+        staleDays: _platformDefaultStaleDays(),
+        maxCacheObjects: _platformDefaultMaxCacheObjects(),
         precacheNextChapter: true,
         backupFrequency: '1d',
         enablePeriodicBackups: false,
@@ -152,8 +161,8 @@ class _CacheSettingsPersistence {
   static Future<CacheSettings> load() async {
     final p = await SharedPreferences.getInstance();
     return CacheSettings(
-      staleDays: p.getInt(_staleDays) ?? 30,
-      maxCacheObjects: p.getInt(_maxObjects) ?? 200,
+      staleDays: p.getInt(_staleDays) ?? _platformDefaultStaleDays(),
+      maxCacheObjects: p.getInt(_maxObjects) ?? _platformDefaultMaxCacheObjects(),
       precacheNextChapter: p.getBool(_precacheNext) ?? true,
       backupFrequency: p.getString(_backupFrequency) ?? '1d',
       enablePeriodicBackups: p.getBool(_enablePeriodic) ?? false,

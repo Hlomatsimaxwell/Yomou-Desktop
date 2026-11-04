@@ -23,7 +23,10 @@ class AppImageCache {
 
   /// The active cache manager. Built lazily so the first images can reuse the
   /// existing on-disk cache without waiting for settings to load.
-  CacheManager get manager => _manager ??= _build(staleDays: 30, maxCacheObjects: 200);
+  CacheManager get manager => _manager ??= _build(
+        staleDays: (Platform.isLinux || Platform.isWindows || Platform.isMacOS) ? 90 : 30,
+        maxCacheObjects: (Platform.isLinux || Platform.isWindows || Platform.isMacOS) ? 1000 : 200,
+      );
 
   CacheManager _build({required int staleDays, required int maxCacheObjects}) =>
       CacheManager(
