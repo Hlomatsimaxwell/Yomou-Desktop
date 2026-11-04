@@ -662,7 +662,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final oldLength = _pages.length;
       await _loadNextChapter();
       if (!mounted || !_pageController.hasClients) return;
-      final dest = (oldLength + 1).clamp(0, _pages.length - 1);
+      final dest = oldLength.clamp(0, _pages.length - 1);
       if (oldLength < _pages.length) {
         await _pageController.animateToPage(
           dest,
