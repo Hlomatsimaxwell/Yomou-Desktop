@@ -31,7 +31,6 @@ import 'package:yomou/features/settings/providers/appearance_provider.dart';
 import 'package:yomou/features/source_management/screens/manga_filter_sheet.dart';
 import 'package:yomou/features/source_management/widgets/manga_preview_pane.dart';
 import 'package:yomou/features/source_management/screens/source_settings_screen.dart';
-import 'package:yomou/features/settings/providers/appearance_provider.dart';
 import 'package:yomou/l10n/generated/app_localizations.dart';
 import 'package:yomou/widgets/source_icon.dart';
 
