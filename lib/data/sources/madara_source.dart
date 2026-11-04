@@ -322,6 +322,10 @@ class MadaraSource extends DioSource implements MangaSource {
       final attrCover = (coverEl?.attributes[config.coverAttr] ?? '').trim();
       final cover =
           attrCover.isNotEmpty ? attrCover : (coverEl?.attributes['src'] ?? '').trim();
+      final cleanCover = (cover.contains('404.png') ||
+              cover.contains('default-placeholder'))
+          ? ''
+          : cover;
       final description =
           document
               .querySelector(config.detailDescriptionSelector)
@@ -378,7 +382,7 @@ class MadaraSource extends DioSource implements MangaSource {
       return MangaDetails(
         id: mangaId,
         title: title,
-        coverUrl: cover,
+        coverUrl: cleanCover,
         sourceId: id,
         description: description,
         author: author,
