@@ -7,6 +7,7 @@ import 'package:yomou/core/theme/amoled.dart';
 import 'package:yomou/widgets/cached_manga_image.dart';
 import 'package:yomou/widgets/manga_hero.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:yomou/core/database/source_cache.dart';
 import 'package:yomou/features/library/screens/manga_detail_screen.dart';
@@ -20,6 +21,7 @@ import 'package:yomou/data/sources/captcha_gate.dart';
 import 'package:yomou/data/sources/source_network.dart';
 import 'package:yomou/features/source_management/screens/captcha_solver_screen.dart';
 import 'package:yomou/core/widgets/ios/ios_menu.dart';
+import 'package:yomou/core/widgets/ios/ios_toast.dart';
 import 'package:yomou/core/widgets/ios/ios_sheet.dart';
 import 'package:yomou/core/widgets/manga_grid_metrics.dart';
 import 'package:yomou/core/widgets/responsive.dart';
@@ -947,6 +949,48 @@ class _MangaGridScreenState extends ConsumerState<MangaGridScreen> {
     );
   }
 
+  Future<void> _showMangaContextMenu(Manga manga, Offset globalPosition) async {
+    final source = getSourceByName(widget.sourceName);
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final relative = RelativeRect.fromRect(
+      globalPosition & Size.zero,
+      Offset.zero & overlay.size,
+    );
+    final selected = await showMenu<String?>(
+      context: context,
+      position: relative,
+      items: [
+        PopupMenuItem<String>(value: 'open', child: Text('Open')),
+        PopupMenuItem<String>(
+          value: 'browser',
+          child: Text('Open in browser'),
+        ),
+        PopupMenuItem<String>(value: 'copy', child: Text('Copy link')),
+      ],
+    );
+    if (!mounted) return;
+    switch (selected) {
+      case 'open':
+        await _openDetail(manga);
+        break;
+      case 'browser':
+        final uri = Uri.parse(source.websiteMangaUrl(manga.id));
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+        break;
+      case 'copy':
+        await Clipboard.setData(ClipboardData(text: source.websiteMangaUrl(manga.id)));
+        if (!mounted) return;
+        showIosToast(
+          context,
+          message: 'Link copied to clipboard.',
+          duration: const Duration(seconds: 2),
+        );
+        break;
+    }
+  }
+
   Future<void> _showGridMenu() async {
     final l = _l;
     final source = getSourceByName(widget.sourceName);
@@ -1346,6 +1390,8 @@ class _MangaGridScreenState extends ConsumerState<MangaGridScreen> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () => _onMangaTap(item),
+      onSecondaryTapDown: (details) =>
+          _showMangaContextMenu(item, details.globalPosition),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
