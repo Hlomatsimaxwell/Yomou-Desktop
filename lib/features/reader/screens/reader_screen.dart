@@ -1098,7 +1098,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       final max = _scrollController.position.maxScrollExtent;
       if (max > 0 && _pages.length > 1) {
         return ((_scrollController.offset / max) * (_pages.length - 1))
-            .round()
+            .floor()
             .clamp(0, _pages.length - 1);
       }
       const perPage = 600.0;
@@ -4816,8 +4816,14 @@ class _ReaderProgressTrackState extends State<_ReaderProgressTrack> {
       idx = page.round();
     } else {
       if (!widget.scrollController.hasClients) return;
-      const perPage = 600.0;
-      idx = (widget.scrollController.offset / perPage).floor();
+      final pos = widget.scrollController.position;
+      final max = pos.maxScrollExtent;
+      if (max > 0 && widget.totalPages > 1) {
+        idx = ((pos.pixels / max) * (widget.totalPages - 1)).floor();
+      } else {
+        const perPage = 600.0;
+        idx = (pos.pixels / perPage).floor();
+      }
     }
     // Absolute page index within the concatenated list.
     final absolute = idx.clamp(0, widget.totalPages - 1);
