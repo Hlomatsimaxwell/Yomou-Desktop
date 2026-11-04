@@ -620,17 +620,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_isHorizontal) {
       if (!_pageController.hasClients) return;
       final current = (_pageController.page ?? _currentPageIndex).round();
-      final target = current + delta;
-      // Crossing the chapter boundary follows the app's swipe behaviour so
-      // the arrow / keyboard / wheel navigation feels contiguous.
-      if (target < 0) {
-        _loadPreviousChapter();
-        return;
-      }
-      if (target >= _pages.length) {
-        _loadNextChapter();
-        return;
-      }
+      final target = (current + delta).clamp(0, _pages.length - 1);
       if (target != current) _pageController.jumpToPage(target);
     } else {
       final target = _currentPageIndex + delta;
@@ -641,6 +631,53 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       } else {
         _loadNextChapter();
       }
+    }
+  }
+
+  /// Desktop paging for the paged reader, including smooth chapter crossings.
+  Future<void> _desktopStepPage(int delta) async {
+    if (_pages.isEmpty || !_isHorizontal || !_pageController.hasClients) {
+      _stepPage(delta);
+      return;
+    }
+    final current = (_pageController.page ?? _currentPageIndex).round();
+    final target = current + delta;
+    if (target < 0) {
+      final oldLength = _pages.length;
+      await _loadPreviousChapter();
+      if (!mounted || !_pageController.hasClients) return;
+      final dest = (_pages.length > oldLength)
+          ? oldLength - 1
+          : (_pages.isEmpty ? 0 : _pages.length - 1);
+      if (dest >= 0) {
+        await _pageController.animateToPage(
+          dest.clamp(0, _pages.length - 1),
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    if (target >= _pages.length) {
+      final oldLength = _pages.length;
+      await _loadNextChapter();
+      if (!mounted || !_pageController.hasClients) return;
+      final dest = (oldLength + 1).clamp(0, _pages.length - 1);
+      if (oldLength < _pages.length) {
+        await _pageController.animateToPage(
+          dest,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return;
+    }
+    if (target != current) {
+      await _pageController.animateToPage(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
     }
   }
 
@@ -4240,12 +4277,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         onKeyEvent: (node, event) {
           if (event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-            _stepPage(-1);
+            _desktopStepPage(-1);
             return KeyEventResult.handled;
           }
           if (event is KeyDownEvent &&
               event.logicalKey == LogicalKeyboardKey.arrowRight) {
-            _stepPage(1);
+            _desktopStepPage(1);
             return KeyEventResult.handled;
           }
           return KeyEventResult.ignored;
@@ -4253,8 +4290,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
         child: Listener(
           onPointerSignal: (signal) {
             if (signal is PointerScrollEvent) {
-              if (signal.scrollDelta.dy > 0) _stepPage(1);
-              else if (signal.scrollDelta.dy < 0) _stepPage(-1);
+              if (signal.scrollDelta.dy > 0) _desktopStepPage(1);
+              else if (signal.scrollDelta.dy < 0) _desktopStepPage(-1);
             }
           },
           child: Stack(
@@ -4267,7 +4304,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                   bottom: 0,
                   child: _ReaderNavButton(
                     icon: Icons.chevron_left_rounded,
-                    onTap: () => _stepPage(-1),
+                    onTap: () => _desktopStepPage(-1),
                   ),
                 ),
                 Positioned(
@@ -4276,7 +4313,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
                   bottom: 0,
                   child: _ReaderNavButton(
                     icon: Icons.chevron_right_rounded,
-                    onTap: () => _stepPage(1),
+                    onTap: () => _desktopStepPage(1),
                   ),
                 ),
               ],
