@@ -172,7 +172,8 @@ class MadaraSource extends DioSource implements MangaSource {
             href.contains('/category/') ||
             href.contains('/genre/') ||
             href.contains('/manga-tag/') ||
-            href.contains('/comic-tag/')) {
+            href.contains('/comic-tag/') ||
+            href.toLowerCase().contains('chapter')) {
           continue;
         }
         final text = a.text.trim();
