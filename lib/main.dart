@@ -123,6 +123,14 @@ void main() async {
     }
   }
 
+  // Desktop has far more RAM and churns through decoded covers/pages quickly;
+  // keep a larger in-memory image cache there to avoid micro-stutters.
+  if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+    PaintingBinding.instance.imageCache
+      ..maximumSize = 2000
+      ..maximumSizeBytes = 2048 << 20;
+  }
+
   // 2. Run the app.
   restartApp();
 
