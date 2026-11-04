@@ -34,6 +34,7 @@ import 'package:yomou/features/source_management/screens/source_settings_screen.
 import 'package:yomou/core/widgets/ios/ios_nav_bar.dart';
 import 'package:yomou/l10n/generated/app_localizations.dart';
 import 'package:yomou/widgets/source_icon.dart';
+import 'package:yomou/data/sources/favicon_resolver.dart';
 
 class ExploreScreen extends ConsumerStatefulWidget {
   const ExploreScreen({super.key});
@@ -44,6 +45,22 @@ class ExploreScreen extends ConsumerStatefulWidget {
 
 class _ExploreScreenState extends ConsumerState<ExploreScreen> {
   bool _loadingRandom = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Prefetch source logos early so scrolling through the Explore / sources
+    // wall resolves from the session cache instead of each tile rediscovering
+    // its icon. Discovery is gated (4/8 at a time) and already disk-backed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final row in ref.read(sortedSourceRowsProvider)) {
+        FaviconResolver.candidates(
+          row['iconUrl'] as String? ?? '',
+          siteUrl: (row['siteUrl'] as String?) ?? '',
+        );
+      }
+    });
+  }
 
   final Set<String> _selectedSourceNames = {};
   bool get _isSelecting => _selectedSourceNames.isNotEmpty;
