@@ -934,9 +934,15 @@ final visibleSourceRowsProvider = Provider<List<Map<String, dynamic>>>((ref) {
           'MangaFire Portuguese Brazil',
         };
 
+  // Hide broken sources that no longer parse, while keeping their catalog
+  // entries/resolvers for existing favorites. Centralised here so both mobile
+  // and desktop stay tidy.
+  final hiddenNames = const <String>{'AllPornComics.co'};
+
   return rows.where((row) {
     if (disableNsfw && isNsfwSource(row)) return false;
     if (desktopUnsupported.contains(row['name'])) return false;
+    if (hiddenNames.contains(row['name'])) return false;
     return content.accepts(row);
   }).toList();
 });
