@@ -306,8 +306,14 @@ class YomouApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       themeMode: theme.mode,
-      theme: theme.lightTheme.copyWith(listTileTheme: hoverTileTheme),
-      darkTheme: theme.darkTheme.copyWith(listTileTheme: hoverTileTheme),
+      theme: theme.lightTheme.copyWith(
+        hoverColor: Colors.black.withValues(alpha: 0.08),
+        listTileTheme: hoverTileTheme,
+      ),
+      darkTheme: theme.darkTheme.copyWith(
+        hoverColor: Colors.white12,
+        listTileTheme: hoverTileTheme,
+      ),
       locale: language == 'system' ? null : Locale(language),
       supportedLocales: AppLocalizations.supportedLocales,
       localizationsDelegates: AppLocalizations.localizationsDelegates,
