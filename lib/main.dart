@@ -269,6 +269,26 @@ void _handleLink(String raw) {
   );
 }
 
+/// App-level back navigation on Escape (desktop keyboard layer).
+class _AppBackIntent extends Intent {
+  const _AppBackIntent();
+}
+
+class _AppBackAction extends Action<_AppBackIntent> {
+  @override
+  Object? invoke(_AppBackIntent intent) {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus != null &&
+        focus.hasFocus &&
+        focus.context?.widget is EditableText) {
+      return null;
+    }
+    final nav = appNavigatorKey.currentState;
+    nav?.maybePop();
+    return null;
+  }
+}
+
 class YomouApp extends ConsumerWidget {
   const YomouApp({super.key});
 
@@ -332,7 +352,12 @@ class YomouApp extends ConsumerWidget {
         );
       },
       home: const HomeScreen(),
-    );
+      shortcuts: const <ShortcutActivator, Intent>{
+        SingleActivator(LogicalKeyboardKey.escape): _AppBackIntent(),
+      },
+      actions: <Type, Action<Intent>>{
+        _AppBackIntent: _AppBackAction(),
+      },    );
   }
 }
 
