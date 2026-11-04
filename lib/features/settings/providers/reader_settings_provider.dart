@@ -211,9 +211,9 @@ class MemoryProfile {
   final int prefetchWindow;
 
   static const MemoryProfile normal =
-      MemoryProfile(imageCacheBytes: 160 << 20, prefetchWindow: 8);
+      MemoryProfile(imageCacheBytes: 160 << 20, prefetchWindow: 12);
   static const MemoryProfile low =
-      MemoryProfile(imageCacheBytes: 48 << 20, prefetchWindow: 2);
+      MemoryProfile(imageCacheBytes: 48 << 20, prefetchWindow: 4);
 
   static MemoryProfile forReduceMemory(bool reduce) =>
       reduce ? low : normal;
