@@ -4,6 +4,9 @@ import 'madara_source.dart';
 class ApollComicsSource extends MadaraSource {
   @override
   String get languageCode => 'es';
+
+  @override
+  Duration? get timeout => const Duration(seconds: 60);
   ApollComicsSource()
       : super(
           const MadaraSiteConfig(

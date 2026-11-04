@@ -22,6 +22,7 @@ class DatabaseHelper {
     // Get the default path for databases on Android/iOS
     String path = join(await getDatabasesPath(), 'manga_reader.db');
 
+
     return await openDatabase(
       path,
       version: 18,
