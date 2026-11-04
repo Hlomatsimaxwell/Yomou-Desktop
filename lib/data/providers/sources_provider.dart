@@ -581,14 +581,13 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
       'iconUrl': 'https://mgeko.cc/static/img/logo_200x200.png',
       'isPinned': false,
     },
-    {
-      'name': 'Like Manga',
-      'language': 'Manhwa, Manhua, English',
-      'bgColor': const Color(0xFFB4345C),
-      'text': 'L',
-      'iconUrl': 'https://likemanga.ink/favicon.ico',
-      'isPinned': false,
-    },
+    // Like Manga (likemanga.ink) is broken / rebranded; keep the source
+    // class and resolver so old favorites still resolve. Re-enable by
+    // uncommenting when the site returns.
+    // {
+    //   'name': 'Like Manga',
+    //   ...
+    // },
     {
       'name': 'ManhuaPlus',
       'language': 'Manhua, English',
@@ -758,7 +757,11 @@ class SourcesNotifier extends StateNotifier<List<Map<String, dynamic>>> {
     // MangaBall is kept out of the visible registry (site unreliable). The
     // source class/resolvers remain, so existing favorites keep working.
     final List<dynamic> decoded = rawDecoded
-        .where((item) => !(item['name'] as String).startsWith('MangaBall '))
+        .where(
+          (item) =>
+              !(item['name'] as String).startsWith('MangaBall ') &&
+              (item['name'] as String) != 'Like Manga',
+        )
         .toList();
     if (decoded.length != rawDecoded.length) {
       await prefs.setString(_prefsKey, jsonEncode(decoded));
