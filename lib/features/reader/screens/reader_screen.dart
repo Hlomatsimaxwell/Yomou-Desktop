@@ -620,7 +620,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_isHorizontal) {
       if (!_pageController.hasClients) return;
       final current = (_pageController.page ?? _currentPageIndex).round();
-      final target = (current + delta).clamp(0, _pages.length - 1);
+      final target = current + delta;
+      // Crossing the chapter boundary follows the app's swipe behaviour so
+      // the arrow / keyboard / wheel navigation feels contiguous.
+      if (target < 0) {
+        _loadPreviousChapter();
+        return;
+      }
+      if (target >= _pages.length) {
+        _loadNextChapter();
+        return;
+      }
       if (target != current) _pageController.jumpToPage(target);
     } else {
       final target = _currentPageIndex + delta;
