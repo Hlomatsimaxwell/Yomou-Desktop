@@ -1,4 +1,4 @@
-import 'dart:io';
+import '../../core/widgets/webview_support.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -917,14 +917,12 @@ final visibleSourceRowsProvider = Provider<List<Map<String, dynamic>>>((ref) {
   final disableNsfw = ref.watch(disableNsfwProvider);
   final content = ref.watch(contentPreferencesProvider);
 
-  // On desktop the hidden WebView engine isn't available, so WebView-backed
-  // sources (MangaFire, MangaGo, Bega Translation) can never render. Hide
-  // them there so the user isn't staring at empty grids, while keeping them
-  // on mobile where the engine exists.
-  final desktopUnsupported = (Platform.isLinux ||
-          Platform.isWindows ||
-          Platform.isMacOS)
-      ? const <String>{
+  // Sources that need the embedded WebView (Cloudflare/JS/SPA) cannot run on
+  // platforms where the engine is unavailable. Keep them on mobile, hide them
+  // on desktop instead of showing empty grids.
+  final desktopUnsupported = inAppWebViewAvailable
+      ? const <String>{}
+      : const <String>{
           'Mangago',
           'Bega Translation',
           'MangaFire English',
@@ -934,8 +932,7 @@ final visibleSourceRowsProvider = Provider<List<Map<String, dynamic>>>((ref) {
           'MangaFire Japanese',
           'MangaFire Portuguese',
           'MangaFire Portuguese Brazil',
-        }
-      : const <String>{};
+        };
 
   return rows.where((row) {
     if (disableNsfw && isNsfwSource(row)) return false;
