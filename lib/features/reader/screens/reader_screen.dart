@@ -4222,6 +4222,59 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (isRtl) {
       pageView = Transform.scale(scaleX: -1, child: pageView);
     }
+    // Desktop paged readers: mouse and keyboard navigation, plus explicit
+    // prev/next arrows for non-touch users.
+    if (usesWideLayout(context)) {
+      pageView = Focus(
+        autofocus: true,
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            _stepPage(-1);
+            return KeyEventResult.handled;
+          }
+          if (event is KeyDownEvent &&
+              event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            _stepPage(1);
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Listener(
+          onPointerSignal: (signal) {
+            if (signal is PointerScrollEvent) {
+              if (signal.scrollDelta.dy > 0) _stepPage(1);
+              else if (signal.scrollDelta.dy < 0) _stepPage(-1);
+            }
+          },
+          child: Stack(
+            children: [
+              pageView,
+              if (_pages.length > 1) ...[
+                Positioned(
+                  left: 8,
+                  top: 0,
+                  bottom: 0,
+                  child: _ReaderNavButton(
+                    icon: Icons.chevron_left_rounded,
+                    onTap: () => _stepPage(-1),
+                  ),
+                ),
+                Positioned(
+                  right: 8,
+                  top: 0,
+                  bottom: 0,
+                  child: _ReaderNavButton(
+                    icon: Icons.chevron_right_rounded,
+                    onTap: () => _stepPage(1),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
     return pageView;
   }
 
@@ -4898,6 +4951,41 @@ class _ChapterPageToast extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// Desktop prev/next arrow button overlaid on the paged reader.
+class _ReaderNavButton extends StatelessWidget {
+  const _ReaderNavButton({required this.icon, required this.onTap});
+
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final cs = Theme.of(context).colorScheme;
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: Ink(
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest,
+              shape: BoxShape.circle,
+              border: Border.all(color: cs.outlineVariant),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(6),
+              child: Icon(icon, size: 26, color: cs.onSurface),
+            ),
+          ),
+        ),
       ),
     );
   }
