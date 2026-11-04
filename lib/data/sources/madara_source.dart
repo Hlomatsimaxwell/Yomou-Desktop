@@ -317,6 +317,7 @@ class MadaraSource extends DioSource implements MangaSource {
       // (`img`) would otherwise hand back as the cover.
       final coverEl =
           document.querySelector('.summary_image img') ??
+          document.querySelector('img.wp-post-image') ??
           document.querySelector(config.mangaCoverSelector);
       final attrCover = (coverEl?.attributes[config.coverAttr] ?? '').trim();
       final cover =
