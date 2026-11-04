@@ -1095,6 +1095,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
     if (_isHorizontal && _pageController.positions.length == 1) {
       return _pageController.page?.round().clamp(0, _pages.length - 1) ?? 0;
     } else if (!_isHorizontal && _scrollController.hasClients) {
+      final max = _scrollController.position.maxScrollExtent;
+      if (max > 0 && _pages.length > 1) {
+        return ((_scrollController.offset / max) * (_pages.length - 1))
+            .round()
+            .clamp(0, _pages.length - 1);
+      }
       const perPage = 600.0;
       return (_scrollController.offset / perPage).floor().clamp(
         0,
@@ -1121,8 +1127,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen>
       if (_pageController.hasClients) _pageController.jumpToPage(idx);
     } else {
       if (_scrollController.hasClients) {
-        final extent = _scrollController.position.maxScrollExtent;
-        _scrollController.jumpTo((idx * 600.0).clamp(0.0, extent));
+        final max = _scrollController.position.maxScrollExtent;
+        final offset = (max > 0 && _pages.length > 1)
+            ? (idx / (_pages.length - 1)) * max
+            : (idx * 600.0);
+        _scrollController.jumpTo(offset.clamp(0.0, max).toDouble());
       }
     }
     setState(() {});
