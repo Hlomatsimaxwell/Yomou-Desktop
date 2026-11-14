@@ -50,6 +50,13 @@ android/*.keystore
 **/*.p12
 **/*.pem
 
+# Local environment / secrets (never commit real OAuth client IDs/secrets)
+.env
+.env.local
+.env.*.local
+**/google-services.json
+**/GoogleService-Info.plist
+
 # App build artifacts
 *.aab
 *.apk

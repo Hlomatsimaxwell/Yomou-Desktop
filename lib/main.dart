@@ -10,6 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:yomou/core/theme/amoled.dart';
 import 'package:yomou/core/app_icon/app_icon_service.dart';
+import 'package:yomou/core/window/desktop_window_service.dart';
 import 'package:yomou/features/suggestions/screens/suggestions_screen.dart';
 import 'features/history/screens/history_screen.dart';
 import 'features/library/screens/favorites_screen.dart';
@@ -340,10 +341,30 @@ class _AppBackAction extends Action<_AppBackIntent> {
 class YomouApp extends ConsumerWidget {
   const YomouApp({super.key});
 
+  // Last effective brightness sent to GTK, so we don't spam the native
+  // channel on every rebuild.
+  static bool? _lastDark;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = ref.watch(themeNotifierProvider);
     final language = ref.watch(appearanceSettingsProvider).language;
+
+    // Keep the GTK header bar / window chrome in step with the app's effective
+    // brightness. With ThemeMode.system this follows the desktop's light/dark
+    // preference; with an explicit choice it overrides it for this app.
+    final systemBrightness = WidgetsBinding.instance.window.platformBrightness;
+    final dark = switch (theme.mode) {
+      ThemeMode.dark => true,
+      ThemeMode.light => false,
+      ThemeMode.system => systemBrightness == Brightness.dark,
+    };
+    if (_lastDark != dark) {
+      _lastDark = dark;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(DesktopWindowService.setDarkTheme(dark));
+      });
+    }
 
     final hoverTileTheme = ListTileThemeData(
       mouseCursor: WidgetStateProperty.all(SystemMouseCursors.click),

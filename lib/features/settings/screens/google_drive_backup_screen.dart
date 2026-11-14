@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:yomou/core/auth/google_sign_in_service.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -31,13 +33,25 @@ class GoogleDriveBackupScreen extends ConsumerStatefulWidget {
 
 class _GoogleDriveBackupScreenState
     extends ConsumerState<GoogleDriveBackupScreen> {
-  final _googleSignIn = GoogleSignIn(scopes: [drive.DriveApi.driveFileScope]);
+  // Use the shared platform-configured client; on desktop this requires the
+  // YOMOU_GOOGLE_CLIENT_ID build define, otherwise sign-in is a no-op.
+  final _googleSignIn = GoogleSignInService.instance;
 
   GoogleSignInAccount? _account;
   drive.DriveApi? _drive;
   bool _busy = false;
   String? _status;
   List<drive.File> _remoteFiles = const [];
+
+  /// Human-readable config hint; null when the platform is set up correctly.
+  String? get _configHint {
+    if (GoogleSignInService.isDesktopConfigured) return null;
+    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
+      return 'Google Sign-In not configured for desktop yet.\n'
+          'Rebuild with: --dart-define=YOMOU_GOOGLE_CLIENT_ID=...';
+    }
+    return null;
+  }
 
   @override
   void initState() {
@@ -237,6 +251,17 @@ class _GoogleDriveBackupScreenState
               'own Drive (appDataFolder scope).',
               style: TextStyle(fontSize: 13, color: color.onSurfaceVariant),
             ),
+            if (_configHint != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _configHint!,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: color.error,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
             if (_account == null)
               FilledButton.icon(

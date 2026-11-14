@@ -12,7 +12,25 @@ struct _MyApplication {
   char** dart_entrypoint_arguments;
   GtkWindow* window;
   FlMethodChannel* app_icon_channel;
+  FlMethodChannel* window_channel;
 };
+
+// Best-effort icon for the first frames, before Dart applies the variant the
+// user picked. Installed packages resolve APPLICATION_ID through the icon
+// theme; AppImages keep the PNG at the AppDir root and set $APPDIR.
+static void apply_startup_icon(GtkWindow* window) {
+  const gchar* appdir = g_getenv("APPDIR");
+  if (appdir != nullptr && *appdir != '\0') {
+    g_autofree gchar* path =
+        g_build_filename(appdir, APPLICATION_ID ".png", nullptr);
+    g_autoptr(GError) error = nullptr;
+    if (gtk_window_set_icon_from_file(window, path, &error)) {
+      return;
+    }
+    g_clear_error(&error);
+  }
+  gtk_window_set_icon_name(window, APPLICATION_ID);
+}
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
@@ -53,6 +71,46 @@ static void app_icon_method_call(FlMethodChannel* channel,
   fl_method_call_respond(method_call, response, nullptr);
 }
 
+// Handles the window channel from lib/core/window/desktop_window_service.dart.
+// The header bar is GTK chrome, not Flutter content, so its colours come from
+// the GTK theme. The app tells GTK which variant it is using so the title bar
+// stays in step with an explicit light/dark choice as well as the system one.
+static void window_method_call(FlMethodChannel* channel,
+                               FlMethodCall* method_call,
+                               gpointer user_data) {
+  g_autoptr(FlMethodResponse) response = nullptr;
+
+  if (g_strcmp0(fl_method_call_get_name(method_call), "setDarkTheme") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    FlValue* dark_value = nullptr;
+    if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      dark_value = fl_value_lookup_string(args, "dark");
+    }
+
+    gboolean dark = FALSE;
+    if (dark_value != nullptr &&
+        fl_value_get_type(dark_value) == FL_VALUE_TYPE_BOOL) {
+      dark = fl_value_get_bool(dark_value);
+    }
+
+    GtkSettings* settings = gtk_settings_get_default();
+    gboolean applied = FALSE;
+    if (settings != nullptr) {
+      g_object_set(settings, "gtk-application-prefer-dark-theme", dark,
+                   nullptr);
+      applied = TRUE;
+    }
+
+    response = FL_METHOD_RESPONSE(
+        fl_method_success_response_new(fl_value_new_bool(applied)));
+  }
+
+  if (response == nullptr) {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(method_call, response, nullptr);
+}
+
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
@@ -66,9 +124,9 @@ static void my_application_activate(GApplication* application) {
 
   self->window = window;
 
-  // Let the window manager resolve the packaged icon by name. The Dart side
-  // may later override this with an absolute file for the chosen variant.
-  gtk_window_set_icon_name(window, APPLICATION_ID);
+  // Show the app name in the window chrome. With a header bar the title has to
+  // be set on the bar itself; otherwise the window manager draws the title.
+  apply_startup_icon(window);
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -90,11 +148,11 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "manga_reader");
+    gtk_header_bar_set_title(header_bar, "Yomou");
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
   } else {
-    gtk_window_set_title(window, "manga_reader");
+    gtk_window_set_title(window, "Yomou");
   }
 
   gtk_window_set_default_size(window, 1280, 720);
@@ -126,6 +184,13 @@ static void my_application_activate(GApplication* application) {
       FL_METHOD_CODEC(fl_standard_method_codec_new()));
   fl_method_channel_set_method_call_handler(
       self->app_icon_channel, app_icon_method_call, self, nullptr);
+
+  self->window_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(engine),
+      "com.hlomatsi.yomou/window",
+      FL_METHOD_CODEC(fl_standard_method_codec_new()));
+  fl_method_channel_set_method_call_handler(
+      self->window_channel, window_method_call, self, nullptr);
 
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
@@ -174,6 +239,7 @@ static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
   g_clear_object(&self->app_icon_channel);
+  g_clear_object(&self->window_channel);
   self->window = nullptr;
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
