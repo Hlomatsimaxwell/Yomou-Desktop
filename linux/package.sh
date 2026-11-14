@@ -5,13 +5,11 @@
 #   ./linux/package.sh [target ...]
 #
 # Targets:
-#   tarball        portable .tar.gz of the release bundle
-#   deb            Debian/Ubuntu package (.deb)
-#   rpm            Fedora/RHEL/openSUSE package (.rpm)
-#   appimage       portable AppImage (downloads appimagetool on first run)
-#   arch           Arch Linux package (.pkg.tar.zst) -- requires makepkg
-#   flatpak-stage  stage a Flatpak manifest + bundle for flatpak-builder
-#   all            tarball + deb + rpm + appimage
+#   tarball   portable .tar.gz of the release bundle
+#   deb       Debian/Ubuntu package (.deb)
+#   rpm       Fedora/RHEL/openSUSE package (.rpm)
+#   appimage  portable AppImage (downloads appimagetool on first run)
+#   all       tarball + deb + rpm + appimage
 #
 # Environment:
 #   VERSION     package version (defaults to the version in pubspec.yaml)
@@ -215,91 +213,6 @@ EOF
   echo "built $out"
 }
 
-build_arch() {
-  command -v makepkg >/dev/null 2>&1 ||
-    die "makepkg not found: run this target inside an Arch container (or on Arch)"
-
-  local work
-  work="$(mktemp -d)"
-  sed "s|__YOMOU_BIN__|/usr/bin/$BIN_NAME|g" \
-    "$DESKTOP_TEMPLATE" > "$work/$APP_ID.desktop"
-  cp "$ICON_SOURCE" "$work/$APP_ID.png"
-
-  cat > "$work/PKGBUILD" <<EOF
-pkgname=yomou
-pkgver=$VERSION
-pkgrel=1
-pkgdesc="Yomou manga reader (desktop build)"
-arch=('x86_64')
-url="$HOMEPAGE"
-license=('Apache-2.0')
-depends=('gtk3' 'xz' 'util-linux-libs' 'gcc-libs' 'glibc')
-options=('!strip' '!debug')
-package() {
-  install -dm755 "\$pkgdir/usr/lib/yomou" "\$pkgdir/usr/bin"
-  install -dm755 "\$pkgdir/usr/share/applications"
-  install -dm755 "\$pkgdir/usr/share/icons/hicolor/512x512/apps"
-  cp -a "$BUNDLE/." "\$pkgdir/usr/lib/yomou/"
-  ln -s ../lib/yomou/$BIN_NAME "\$pkgdir/usr/bin/$BIN_NAME"
-  install -Dm644 "$work/$APP_ID.desktop" "\$pkgdir/usr/share/applications/$APP_ID.desktop"
-  install -Dm644 "$work/$APP_ID.png" "\$pkgdir/usr/share/icons/hicolor/512x512/apps/$APP_ID.png"
-}
-EOF
-
-  ( cd "$work" && makepkg -f --nodeps --noconfirm >/dev/null )
-  local built
-  built="$(find "$work" -maxdepth 1 -name '*.pkg.tar.zst' | head -n1)"
-  [ -n "$built" ] || die "makepkg did not produce a package"
-  cp "$built" "$OUT/"
-  rm -rf "$work"
-  echo "built $OUT/$(basename "$built")"
-}
-
-build_flatpak_stage() {
-  local dir="${FLATPAK_STAGE_DIR:-$OUT/flatpak}"
-  rm -rf "$dir"
-  mkdir -p "$dir"
-  cp -a "$BUNDLE" "$dir/bundle"
-  sed "s|__YOMOU_BIN__|$BIN_NAME|g" \
-    "$DESKTOP_TEMPLATE" > "$dir/$APP_ID.desktop"
-  cp "$ICON_SOURCE" "$dir/$APP_ID.png"
-
-  cat > "$dir/$APP_ID.yml" <<EOF
-app-id: $APP_ID
-runtime: org.freedesktop.Platform
-runtime-version: '25.08'
-sdk: org.freedesktop.Sdk
-command: $BIN_NAME
-finish-args:
-  - --share=network
-  - --share=ipc
-  - --socket=wayland
-  - --socket=fallback-x11
-  - --device=dri
-  - --filesystem=xdg-download
-modules:
-  - name: yomou
-    buildsystem: simple
-    build-commands:
-      - mkdir -p /app/yomou /app/bin
-      # A dir source unpacks its contents at the build root, so the release
-      # tree (data/ lib/ manga_reader) is here directly.
-      - cp -a data lib $BIN_NAME /app/yomou/
-      - ln -s /app/yomou/$BIN_NAME /app/bin/$BIN_NAME
-      - install -Dm644 $APP_ID.desktop /app/share/applications/$APP_ID.desktop
-      - install -Dm644 $APP_ID.png /app/share/icons/hicolor/512x512/apps/$APP_ID.png
-    sources:
-      - type: dir
-        path: bundle
-      - type: file
-        path: $APP_ID.desktop
-      - type: file
-        path: $APP_ID.png
-EOF
-
-  echo "staged Flatpak manifest at $dir/$APP_ID.yml"
-}
-
 main() {
   [ $# -gt 0 ] || set -- all
   local target
@@ -309,8 +222,6 @@ main() {
       deb) build_deb ;;
       rpm) build_rpm ;;
       appimage) build_appimage ;;
-      arch) build_arch ;;
-      flatpak-stage) build_flatpak_stage ;;
       all)
         build_tarball
         build_deb

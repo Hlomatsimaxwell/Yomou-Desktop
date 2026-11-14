@@ -22,9 +22,8 @@ env:
   FLUTTER_VERSION: '3.47.8'
 
 jobs:
-  # Portable archive + native packages + AppImage, all from one Flutter build.
   build:
-    name: Native packages (tar/deb/rpm/AppImage)
+    name: Linux packages
     # 22.04 keeps the glibc floor low enough for Debian 12 / Ubuntu 22.04+.
     runs-on: ubuntu-22.04
     outputs:
@@ -81,103 +80,37 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: ./linux/package.sh tarball deb rpm appimage
 
+      # One artifact per format. The run page always serves artifacts as zips,
+      # but each of these contains exactly one file. Tag pushes also attach the
+      # raw files to the GitHub Release (see the release job).
       - uses: actions/upload-artifact@v4
         with:
-          name: yomou-linux-${{ steps.version.outputs.version }}
-          path: |
-            dist/*.tar.gz
-            dist/*.deb
-            dist/*.rpm
-            dist/*.AppImage
+          name: yomou-tarball-${{ steps.version.outputs.version }}
+          path: dist/*.tar.gz
           if-no-files-found: error
 
-      - name: Bundle release tree for the other jobs
-        run: tar -C build/linux/x64/release -czf bundle.tar.gz bundle
-
       - uses: actions/upload-artifact@v4
         with:
-          name: yomou-bundle
-          path: bundle.tar.gz
-          retention-days: 1
-
-  arch:
-    name: Arch package
-    needs: build
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: yomou-bundle
-          path: .
-
-      - name: Extract bundle
-        run: tar -xzf bundle.tar.gz
-        # produces ./bundle
-
-      - name: Build in Arch container
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-        run: |
-          docker run --rm \
-            -v "$PWD:/work" -w /work \
-            -e VERSION -e BUNDLE_DIR=/work/bundle \
-            archlinux:base-devel \
-            bash -c '
-              set -euo pipefail
-              useradd -m builder
-              mkdir -p /work/dist
-              chown builder /work/dist
-              su builder -c "cd /work && VERSION=$VERSION BUNDLE_DIR=$BUNDLE_DIR ./linux/package.sh arch"
-            '
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: yomou-arch-${{ needs.build.outputs.version }}
-          path: dist/*.pkg.tar.zst
+          name: yomou-deb-${{ steps.version.outputs.version }}
+          path: dist/*.deb
           if-no-files-found: error
 
-  flatpak:
-    name: Flatpak bundle
-    needs: build
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: yomou-bundle
-          path: .
-
-      - name: Extract bundle
-        run: tar -xzf bundle.tar.gz
-
-      - name: Stage manifest
-        env:
-          VERSION: ${{ needs.build.outputs.version }}
-          BUNDLE_DIR: ${{ github.workspace }}/bundle
-        run: ./linux/package.sh flatpak-stage
-
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: Yomou-${{ needs.build.outputs.version }}.flatpak
-          manifest-path: dist/flatpak/com.stunna.manga_reader.yml
-          cache-key: flatpak-${{ needs.build.outputs.version }}
-          run-tests: false
+          name: yomou-rpm-${{ steps.version.outputs.version }}
+          path: dist/*.rpm
+          if-no-files-found: error
 
       - uses: actions/upload-artifact@v4
         with:
-          name: yomou-flatpak-${{ needs.build.outputs.version }}
-          path: '*.flatpak'
+          name: yomou-appimage-${{ steps.version.outputs.version }}
+          path: dist/*.AppImage
           if-no-files-found: error
 
-  # Only tag pushes publish a release; a failed optional job must not hide the
-  # packages that did build.
   release:
     name: Attach to GitHub release
-    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
-    needs: [build, arch, flatpak]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/download-artifact@v4
