@@ -8,7 +8,14 @@ void main() {
     final options = await AppIconService.options();
     final ids = options.map((option) => option.id).toList();
 
-    expect(ids, containsAll(<String>['dark', 'light', 'gold', 'blue']));
+    expect(
+      ids,
+      containsAll(<String>['dark', 'light', 'white', 'gold', 'blue', 'bw']),
+    );
+    expect(
+      options.firstWhere((option) => option.id == 'bw').label,
+      'B&W',
+    );
     for (final option in options) {
       expect(option.asset, startsWith('assets/app_icons/variant_'));
       expect(option.label, isNotEmpty);

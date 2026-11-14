@@ -39,7 +39,18 @@ class AppIconService {
 
   /// The order the picker uses for variants that ship with the app. Unknown
   /// (newly added) variants follow alphabetically.
-  static const _preferredOrder = ['dark', 'light', 'gold', 'blue'];
+  static const _preferredOrder = [
+    'dark',
+    'light',
+    'white',
+    'gold',
+    'blue',
+    'bw',
+  ];
+
+  /// Labels for ids whose raw spelling would read badly (`bw` would otherwise
+  /// become "Bw").
+  static const _labelOverrides = {'bw': 'B&W'};
 
   static bool get isSupported =>
       !kIsWeb && (Platform.isAndroid || Platform.isLinux);
@@ -289,6 +300,8 @@ class AppIconService {
 
   /// `moon_gold` -> `Moon Gold`.
   static String _label(String id) {
+    final override = _labelOverrides[id];
+    if (override != null) return override;
     return id
         .split(RegExp(r'[_\-\s]+'))
         .where((word) => word.isNotEmpty)

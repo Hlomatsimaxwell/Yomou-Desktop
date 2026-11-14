@@ -1013,8 +1013,8 @@ class _IconPreview extends StatelessWidget {
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: isSelected ? scheme.primary : Colors.transparent,
-                width: 3,
+                color: isSelected ? scheme.primary : scheme.outlineVariant,
+                width: isSelected ? 3 : 1,
               ),
             ),
             child: ClipRRect(

@@ -24,7 +24,7 @@ shopt -s nullglob
 found=0
 for dir in "$SRC"/*/; do
   name="$(basename "$dir")"
-  id="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | tr ' -' '__')"
+  id="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/_/g; s/^_+//; s/_+$//')"
 
   source=""
   for candidate in AppIcon512.png AppIcon1024.png AppIcon256.png; do
