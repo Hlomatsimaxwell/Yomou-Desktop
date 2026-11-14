@@ -34,6 +34,9 @@ manga reader built with Flutter.
 
 ## Download
 
+[![Latest release](https://img.shields.io/github/v/release/Hlomatsimaxwell/Yomou-Desktop?label=release&color=blue)](https://github.com/Hlomatsimaxwell/Yomou-Desktop/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Hlomatsimaxwell/Yomou-Desktop/total?label=downloads&color=brightgreen)](https://github.com/Hlomatsimaxwell/Yomou-Desktop/releases)
+
 Linux packages are attached to the
 [latest release](https://github.com/Hlomatsimaxwell/Yomou-Desktop/releases/latest).
 
