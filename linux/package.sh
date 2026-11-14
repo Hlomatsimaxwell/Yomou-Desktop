@@ -78,9 +78,9 @@ build_tarball() {
   work="$(mktemp -d)"
   mkdir -p "$work/Yomou-$VERSION"
   cp -a "$BUNDLE/." "$work/Yomou-$VERSION/"
-  tar -C "$work" -czf "$OUT/Yomou-$VERSION-linux-x86_64.tar.gz" "Yomou-$VERSION"
+  tar -C "$work" -czf "$OUT/yomou-$VERSION-linux-x64.tar.gz" "Yomou-$VERSION"
   rm -rf "$work"
-  echo "built $OUT/Yomou-$VERSION-linux-x86_64.tar.gz"
+  echo "built $OUT/yomou-$VERSION-linux-x64.tar.gz"
 }
 
 build_deb() {
@@ -207,7 +207,7 @@ EOF
     fi
   fi
 
-  local out="$OUT/Yomou-$VERSION-x86_64.AppImage"
+  local out="$OUT/Yomou-$VERSION-linux-x86_64.AppImage"
   ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$tool" --no-appstream "$appdir" "$out"
   rm -rf "$appdir"
   echo "built $out"
