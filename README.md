@@ -1,134 +1,121 @@
-<div align="center">
+# Yomou Desktop
 
-**Yomou — formerly _Manga Reader_ — is a free and open-source manga reader for Android and iOS, built with Flutter.**
+Yomou Desktop is the Linux desktop build of **Yomou**, a free and open-source
+manga reader built with Flutter.
 
-![Android 7.0+](https://img.shields.io/badge/android-7.0+-brightgreen)
-![iOS 14.0+](https://img.shields.io/badge/iOS-14.0+-lightgrey)
-[![Latest release](https://img.shields.io/github/v/release/Hlomatsimaxwell/Yomou?label=release&color=blue)](https://github.com/Hlomatsimaxwell/Yomou/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/Hlomatsimaxwell/Yomou/total?label=downloads&color=brightgreen)](https://github.com/Hlomatsimaxwell/Yomou/releases)
+> The Android and iOS app lives in a separate repository:
+> [Hlomatsimaxwell/Yomou](https://github.com/Hlomatsimaxwell/Yomou).
+> Desktop builds are versioned independently and start at `1.0.0`.
 
-### [⬇️ Download the latest release](https://github.com/Hlomatsimaxwell/Yomou/releases/latest)
+## Features
 
-Also available via **F-Droid** (personal repo):
-
-[![F-Droid](https://img.shields.io/badge/F--Droid-Install-blue?logo=fdroid)](https://raw.githubusercontent.com/Hlomatsimaxwell/yomou-fdroid-repo/main/repo/?fingerprint=)
-
-In F-Droid: Settings → Repositories → +, then paste:
-```
-https://raw.githubusercontent.com/Hlomatsimaxwell/yomou-fdroid-repo/main/repo/
-```
-
-</div>
-
-### Main Features
-
-<div align="left">
-
-- **70+ built-in online sources** across many languages, with a searchable source catalog, language filters and pinned sources
-- **Search everything at once** — one query across all your sources, by title or genre; when a source is missing a title, **Alternatives** finds it elsewhere and carries your progress over
-- **Five-tab experience** — History, Favorites, Suggestions, Explore and an Updates feed with unread new-chapter badges
-- **Continue Reading** — one tap from the History tab resumes your latest chapter exactly where you left off
-- **Full-featured reader** — paged, right-to-left, vertical and Webtoon modes, e-ink mode, zoom/crop/gap controls, gesture and volume-key paging
-- **Offline downloads** — download chapters and read them with no connection, or open your own CBZ/ZIP archives
-- **Library & history tools** — favorites, filters (downloaded / new chapters / completed), sorting, date-grouped lists and progress rings
-- **Backups** — export and restore your library and history, including Tachiyomi/Kotatsu backup import
+- **200+ built-in online sources** across many languages, with a searchable
+  source catalog, language filters and pinned sources
+- **Search everything at once** — one query across all sources, by title or
+  genre; when a source is missing a title, **Alternatives** finds it elsewhere
+  and carries your progress over
+- **Desktop layout** — History, Favorites, Suggestions, Explore and an Updates
+  feed, with a wide-window layout that makes room for covers and details
+- **Continue Reading** — resume your latest chapter exactly where you left off
+- **Full-featured reader** — paged, right-to-left, vertical and Webtoon modes,
+  e-ink mode, zoom/crop/gap controls, plus mouse-wheel, arrow-key and on-screen
+  paging
+- **Offline downloads** — download chapters and read them with no connection,
+  or open your own CBZ/ZIP archives
+- **Library and history tools** — favorites, filters, sorting, date-grouped
+  lists and progress rings
+- **Backups** — export and restore your library and history, including
+  Tachiyomi/Kotatsu backup import
 - **Reading statistics** — chapters read, time spent and per-manga progress
-- **Incognito mode** — read without adding anything to your history
-- **Built-in Cloudflare handling** — solves the challenge inside the app, so protected sources keep working
-- **iOS-style design on both platforms** — native sheets, toggles and press animations, accent-colored theming, and dedicated tablet layouts
-- **Supports Android 7.0 and newer, and iOS 14 and newer**
+- **Built-in Cloudflare handling** — solves the challenge inside the app, so
+  protected sources keep working
+- **Remembers your window** — size, position and maximised state are restored
+  on the next launch
 
-</div>
+## Download
 
-### In-App Screenshots
+Linux packages are attached to the
+[latest release](https://github.com/Hlomatsimaxwell/Yomou-Desktop/releases/latest).
 
-<p align="center"><i>Android</i></p>
+| Format | File | Install |
+| --- | --- | --- |
+| AppImage | `Yomou-<version>-linux-x86_64.AppImage` | `chmod +x` the file, then run it |
+| Debian/Ubuntu | `yomou_<version>_amd64.deb` | `sudo apt install ./yomou_<version>_amd64.deb` |
+| Fedora/RHEL/openSUSE | `yomou-<version>-1.x86_64.rpm` | `sudo dnf install ./yomou-<version>-1.x86_64.rpm` |
+| Portable tarball | `yomou-<version>-linux-x64.tar.gz` | extract, then run `Yomou-<version>/manga_reader` |
 
-<div align="center">
-    <img src=".github/assets/app_previews/android/Android-History.png" alt="Reading history" width="205"/>
-    <img src=".github/assets/app_previews/android/Android-Detail.png" alt="Manga details" width="205"/>
-    <img src=".github/assets/app_previews/android/Android-Reader.png" alt="Reader" width="205"/>
-    <img src=".github/assets/app_previews/android/Android-Updates.png" alt="Updates feed" width="205"/>
-</div>
+All builds target `x86_64` Linux and require GTK 3.
 
-<br>
+## Build from source
 
-<p align="center"><i>iOS</i></p>
+Install the Flutter SDK (stable channel) and the Linux desktop toolchain:
 
-<div align="center">
-    <img src=".github/assets/app_previews/ios/ios-backup_restore.png" alt="Backup and restore" width="205"/>
-    <img src=".github/assets/app_previews/ios/ios-stats.png" alt="Reading statistics" width="205"/>
-    <img src=".github/assets/app_previews/ios/ios-Favourites.png" alt="Favourites" width="205"/>
-    <img src=".github/assets/app_previews/ios/ios-updates.png" alt="Updates" width="205"/>
-</div>
+```bash
+sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev
+```
 
-<br>
-
-<p align="center"><i>Tablet</i></p>
-
-<div align="center">
-    <img src=".github/assets/app_previews/tabs/Tablet-History.png" alt="Tablet history" width="380"/>
-    <img src=".github/assets/app_previews/tabs/Tablet-Detail.png" alt="Tablet details" width="380"/>
-    <img src=".github/assets/app_previews/tabs/Tablet-reader.png" alt="Tablet reader" width="380"/>
-    <img src=".github/assets/app_previews/tabs/Tablet-link.png" alt="Tablet split view" width="380"/>
-</div>
-
-<br>
-
-### Download & Install
-
-#### Android
-
-Every release attaches ready-to-install APKs. Pick the one that matches your device:
-
-| Build | Use it when |
-| --- | --- |
-| `Yomou-<version>-arm64-v8a.apk` | almost every modern phone or tablet |
-| `Yomou-<version>-armeabi-v7a.apk` | older 32-bit devices |
-| `Yomou-<version>-x86_64.apk` | Android emulators |
-| `Yomou-<version>-universal.apk` | you are not sure which one you need |
-
-> Requires Android 7.0 (API 24) or newer. Installing over an existing copy keeps your library and history.
-
-#### iOS
-
-Each release also attaches an **unsigned** `Yomou-<version>-unsigned.ipa`. Import it into [LiveContainer](https://github.com/LiveContainer/LiveContainer), or sign it yourself with a tool such as [SideStore](https://github.com/SideStore/SideStore) or AltStore.
-
-> Requires iOS 14 or newer.
-
-### Contributing
-
-Issues and pull requests are welcome. If you want to add or fix a source, include the URL you tested it against — sources drift, and a reproducible page is what makes a fix checkable.
-
-Before sending a pull request, run the checks the project uses:
+Then build and run:
 
 ```bash
 flutter pub get
-flutter analyze
-flutter test
+flutter build linux --release
+./build/linux/x64/release/bundle/manga_reader
 ```
 
-### Disclaimer
+### Package it
 
-Yomou is a reader, not a content provider. The developers have no affiliation with any of the content available through the app and do not store or distribute any of it; everything the app can reach is already publicly available on the internet. Any takedown request should go to the site that hosts the material.
+```bash
+./linux/package.sh all
+```
 
-The app is meant for personal use. Please support the official releases of the works you read.
+This writes the four formats above into `dist/`. The individual targets are
+`tarball`, `deb`, `rpm`, `appimage` and `all`. `VERSION` can be overridden, for
+example `VERSION=1.0.1 ./linux/package.sh all`.
 
-### Acknowledgments
-
-- [Kotatsu](https://github.com/KotatsuApp/Kotatsu) and [Kotatsu-Redo](https://github.com/Kotatsu-Redo/Kotatsu-Redo) — the design this app follows and the origin of parts of its parser and backup code, which are licensed under GPLv3 and remain so
-- [Flutter](https://flutter.dev) and the packages in `pubspec.yaml`
-- Icons: [Material Design Icons](https://materialdesignicons.com/) (Pictogrammers), plus glyphs ported from Kotatsu-Redo
-- iOS sideloading inspiration: [LiveContainer](https://github.com/LiveContainer/LiveContainer), [SideStore](https://github.com/SideStore/SideStore)
-
-## Linux (desktop)
-
-After `flutter build linux`, package with:
+To install the built bundle for the current user instead:
 
 ```bash
 ./linux/install.sh
 ```
 
-This installs the bundle to `~/.local/share/com.stunna.manga_reader`, symlinks the
-binary into `~/.local/bin/manga_reader`, and registers a `.desktop` entry in
-`~/.local/share/applications`, so the app appears in the system launcher.
+That copies the app to `~/.local/share/com.stunna.manga_reader`, links the
+binary into `~/.local/bin` and registers a launcher entry, so Yomou shows up in
+the application menu.
+
+## Contributing
+
+Issues and pull requests are welcome. If you are adding or fixing a source,
+include the URL you tested it against — sources drift, and a reproducible page
+is what makes a fix checkable.
+
+Before sending a pull request, run the checks the project uses:
+
+```bash
+flutter analyze
+flutter test
+```
+
+## Disclaimer
+
+Yomou is a reader, not a content provider. The developers have no affiliation
+with any of the content available through the app and do not store or
+distribute any of it; everything the app can reach is already publicly available
+on the internet. Any takedown request should go to the site that hosts the
+material.
+
+The app is meant for personal use. Please support the official releases of the
+works you read.
+
+## Acknowledgments
+
+- [Kotatsu](https://github.com/KotatsuApp/Kotatsu) and
+  [Kotatsu-Redo](https://github.com/Kotatsu-Redo/Kotatsu-Redo) — the design this
+  app follows and the origin of parts of its parser and backup code, which are
+  licensed under GPLv3 and remain so
+- [Flutter](https://flutter.dev) and the packages in `pubspec.yaml`
+- Icons: [Material Design Icons](https://materialdesignicons.com/)
+  (Pictogrammers), plus glyphs ported from Kotatsu-Redo
+
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
