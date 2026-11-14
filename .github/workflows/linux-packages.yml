@@ -1,0 +1,191 @@
+name: Linux packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Override package version (defaults to pubspec.yaml)
+        required: false
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-packages-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.47.8'
+
+jobs:
+  # Portable archive + native packages + AppImage, all from one Flutter build.
+  build:
+    name: Native packages (tar/deb/rpm/AppImage)
+    # 22.04 keeps the glibc floor low enough for Debian 12 / Ubuntu 22.04+.
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            version="${{ inputs.version }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(sed -n 's/^version:[[:space:]]*\([0-9][^+[:space:]]*\).*/\1/p' pubspec.yaml | head -n1)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Packaging version $version"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev \
+            libstdc++-12-dev rpm patchelf imagemagick desktop-file-utils
+
+      - name: Build Linux release
+        run: |
+          flutter pub get
+          flutter build linux --release
+
+      - name: Normalise RPATHs
+        run: |
+          while IFS= read -r -d '' f; do
+            file "$f" | grep -q ELF || continue
+            readelf -d "$f" | grep -q RUNPATH || continue
+            case "$(basename "$f")" in
+              manga_reader) rpath='$ORIGIN/lib' ;;
+              *)            rpath='$ORIGIN' ;;
+            esac
+            patchelf --set-rpath "$rpath" "$f"
+          done < <(find build/linux/x64/release/bundle -type f \
+            \( -name '*.so*' -o -perm -u+x \) -print0)
+
+      - name: Package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./linux/package.sh tarball deb rpm appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomou-linux-${{ steps.version.outputs.version }}
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+            dist/*.AppImage
+          if-no-files-found: error
+
+      - name: Bundle release tree for the other jobs
+        run: tar -C build/linux/x64/release -czf bundle.tar.gz bundle
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomou-bundle
+          path: bundle.tar.gz
+          retention-days: 1
+
+  arch:
+    name: Arch package
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: yomou-bundle
+          path: .
+
+      - name: Extract bundle
+        run: tar -xzf bundle.tar.gz
+        # produces ./bundle
+
+      - name: Build in Arch container
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          docker run --rm \
+            -v "$PWD:/work" -w /work \
+            -e VERSION -e BUNDLE_DIR=/work/bundle \
+            archlinux:base-devel \
+            bash -c '
+              set -euo pipefail
+              useradd -m builder
+              mkdir -p /work/dist
+              chown builder /work/dist
+              su builder -c "cd /work && VERSION=$VERSION BUNDLE_DIR=$BUNDLE_DIR ./linux/package.sh arch"
+            '
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomou-arch-${{ needs.build.outputs.version }}
+          path: dist/*.pkg.tar.zst
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak bundle
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: yomou-bundle
+          path: .
+
+      - name: Extract bundle
+        run: tar -xzf bundle.tar.gz
+
+      - name: Stage manifest
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+          BUNDLE_DIR: ${{ github.workspace }}/bundle
+        run: ./linux/package.sh flatpak-stage
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: Yomou-${{ needs.build.outputs.version }}.flatpak
+          manifest-path: dist/flatpak/com.stunna.manga_reader.yml
+          cache-key: flatpak-${{ needs.build.outputs.version }}
+          run-tests: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomou-flatpak-${{ needs.build.outputs.version }}
+          path: '*.flatpak'
+          if-no-files-found: error
+
+  # Only tag pushes publish a release; a failed optional job must not hide the
+  # packages that did build.
+  release:
+    name: Attach to GitHub release
+    if: always() && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success'
+    needs: [build, arch, flatpak]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

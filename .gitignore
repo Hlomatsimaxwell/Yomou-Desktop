@@ -57,3 +57,5 @@ android/*.keystore
 
 # OS
 Thumbs.db
+# Local packaging output
+dist/
