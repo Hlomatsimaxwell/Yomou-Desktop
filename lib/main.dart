@@ -1,6 +1,7 @@
 import 'package:window_manager/legacy.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'dart:async';
 import 'dart:ui' show ImageFilter;
@@ -53,6 +54,11 @@ GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Chapter dates on multilingual sources (MangaThemesia and friends) are
+  // formatted with the site's own locale, so the month-name tables have to be
+  // registered before the first listing is parsed.
+  await initializeDateFormatting();
 
   // Draw edge-to-edge: the app's canvas runs under both system bars, so the
   // floating nav pill and the lists' bottom clearance (bottomBarClearance)
