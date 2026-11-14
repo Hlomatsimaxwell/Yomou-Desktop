@@ -35,7 +35,7 @@ class AppIconService {
   static const _prefsKey = 'app_icon_variant';
   static const _appId = 'com.stunna.manga_reader';
   static const _assetPrefix = 'assets/app_icons/variant_';
-  static const _defaultId = 'dark';
+  static const _defaultId = 'gold';
 
   /// The order the picker uses for variants that ship with the app. Unknown
   /// (newly added) variants follow alphabetically.

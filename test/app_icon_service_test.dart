@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:yomou/core/app_icon/app_icon_service.dart';
 
 void main() {
@@ -20,5 +21,10 @@ void main() {
       expect(option.asset, startsWith('assets/app_icons/variant_'));
       expect(option.label, isNotEmpty);
     }
+  });
+
+  test('gold is the default before the user picks an icon', () async {
+    SharedPreferences.setMockInitialValues({});
+    expect(await AppIconService.current(), 'gold');
   });
 }
