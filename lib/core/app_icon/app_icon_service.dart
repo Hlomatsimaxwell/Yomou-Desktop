@@ -39,14 +39,13 @@ class AppIconService {
 
   /// The order the picker uses for variants that ship with the app. Unknown
   /// (newly added) variants follow alphabetically.
-  static const _preferredOrder = [
-    'dark',
-    'light',
-    'white',
-    'gold',
-    'blue',
-    'bw',
-  ];
+  ///
+  /// Dark and light stay on disk as launcher-generation sources but are not
+  /// offered in the picker: White and B&W already cover those theme looks.
+  static const _preferredOrder = ['gold', 'blue', 'white', 'bw'];
+
+  /// Bundled variants the picker deliberately hides.
+  static const _pickerExcluded = {'dark', 'light'};
 
   /// Labels for ids whose raw spelling would read badly (`bw` would otherwise
   /// become "Bw").
@@ -90,6 +89,7 @@ class AppIconService {
             (asset) =>
                 asset.substring(_assetPrefix.length, asset.length - 4),
           )
+          .where((id) => !_pickerExcluded.contains(id))
           .toSet()
           .toList()
         ..sort((a, b) {

@@ -11,8 +11,11 @@ void main() {
 
     expect(
       ids,
-      containsAll(<String>['dark', 'light', 'white', 'gold', 'blue', 'bw']),
+      containsAll(<String>['gold', 'blue', 'white', 'bw']),
     );
+    expect(ids, isNot(contains('dark')));
+    expect(ids, isNot(contains('light')));
+    expect(ids.first, 'gold');
     expect(
       options.firstWhere((option) => option.id == 'bw').label,
       'B&W',
