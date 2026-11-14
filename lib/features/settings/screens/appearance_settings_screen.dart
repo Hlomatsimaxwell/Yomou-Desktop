@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_material_design_icons/flutter_material_design_icons.dart';
@@ -15,34 +16,29 @@ class AppearanceSettingsScreen extends ConsumerWidget {
   const AppearanceSettingsScreen({super.key});
 
   static Future<void> _showAppIconSelector(BuildContext context) async {
+    final options = await AppIconService.options();
+    if (options.isEmpty || !context.mounted) return;
+
     final current = await AppIconService.current();
     if (!context.mounted) return;
-    await showDialog<void>(
+
+    final chosen = await showDialog<String>(
       context: context,
       builder: (ctx) {
         return AlertDialog(
           title: const Text('App Icon'),
-          content: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          content: Wrap(
+            spacing: 24,
+            runSpacing: 16,
+            alignment: WrapAlignment.center,
             children: [
-              _IconPreview(
-                label: 'Dark',
-                asset: 'assets/app_icons/app_icon_dark.png',
-                isSelected: current == AppIconVariant.dark,
-                onTap: () async {
-                  await AppIconService.set(AppIconVariant.dark);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                },
-              ),
-              _IconPreview(
-                label: 'Light',
-                asset: 'assets/app_icons/app_icon_light.png',
-                isSelected: current == AppIconVariant.light,
-                onTap: () async {
-                  await AppIconService.set(AppIconVariant.light);
-                  if (ctx.mounted) Navigator.pop(ctx);
-                },
-              ),
+              for (final option in options)
+                _IconPreview(
+                  label: option.label,
+                  asset: option.asset,
+                  isSelected: current == option.id,
+                  onTap: () => Navigator.pop(ctx, option.id),
+                ),
             ],
           ),
           actions: [
@@ -53,6 +49,32 @@ class AppearanceSettingsScreen extends ConsumerWidget {
           ],
         );
       },
+    );
+
+    if (chosen == null || !context.mounted) return;
+
+    final applied = await AppIconService.set(chosen);
+    if (!context.mounted) return;
+
+    final label = () {
+      for (final option in options) {
+        if (option.id == chosen) return option.label;
+      }
+      return null;
+    }();
+    final messenger = ScaffoldMessenger.of(context);
+    if (!applied) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not change the app icon.')),
+      );
+      return;
+    }
+
+    final desktopNote = defaultTargetPlatform == TargetPlatform.linux
+        ? ' Some launchers update after you reopen the app menu.'
+        : '';
+    messenger.showSnackBar(
+      SnackBar(content: Text('${label ?? 'App'} icon applied.$desktopNote')),
     );
   }
 
@@ -174,14 +196,14 @@ class AppearanceSettingsScreen extends ConsumerWidget {
           subtitle: Text(_themeModeLabel(l, settings.themeMode)),
           onTap: () => _showThemeModeSelector(context, ref, settings, notifier),
         ),
-        // App Icon selector. Shows a row for each available icon (dark/light)
-        // with a live preview and the current selection marked. Only supported
-        // on Android for now; on other platforms the tile is hidden.
+        // App Icon selector. Lists every variant this platform can apply, with
+        // a live preview and the current selection marked. Android rotates the
+        // native activity aliases; Linux rewrites the per-user launcher entry.
         if (AppIconService.isSupported)
           ListTile(
             leading: const Icon(MdiIcons.application, size: 24),
             title: const Text('App Icon'),
-            subtitle: const Text('Choose light or dark launcher icon'),
+            subtitle: const Text('Choose a launcher icon'),
             onTap: () => _showAppIconSelector(context),
           ),
         // Only meaningful against a dark background, so it is offered only

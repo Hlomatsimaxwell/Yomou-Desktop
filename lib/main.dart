@@ -9,6 +9,7 @@ import 'dart:io';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:yomou/core/theme/amoled.dart';
+import 'package:yomou/core/app_icon/app_icon_service.dart';
 import 'package:yomou/features/suggestions/screens/suggestions_screen.dart';
 import 'features/history/screens/history_screen.dart';
 import 'features/library/screens/favorites_screen.dart';
@@ -59,6 +60,12 @@ void main() async {
   // formatted with the site's own locale, so the month-name tables have to be
   // registered before the first listing is parsed.
   await initializeDateFormatting();
+
+  // Match the window/task-switcher icon to the launcher icon the user picked.
+  // Wait for the first frame so the Linux platform channel is registered.
+  WidgetsBinding.instance.addPostFrameCallback((_) {
+    unawaited(AppIconService.restoreWindowIcon());
+  });
 
   // Draw edge-to-edge: the app's canvas runs under both system bars, so the
   // floating nav pill and the lists' bottom clearance (bottomBarClearance)

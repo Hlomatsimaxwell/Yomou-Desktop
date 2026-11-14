@@ -10,9 +10,48 @@
 struct _MyApplication {
   GtkApplication parent_instance;
   char** dart_entrypoint_arguments;
+  GtkWindow* window;
+  FlMethodChannel* app_icon_channel;
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
+
+// Handles the app-icon channel shared with lib/core/app_icon/app_icon_service.dart.
+// Linux uses it to swap the live window icon when the user picks a variant; the
+// launcher entry is rewritten on the Dart side.
+static void app_icon_method_call(FlMethodChannel* channel,
+                                 FlMethodCall* method_call,
+                                 gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  g_autoptr(FlMethodResponse) response = nullptr;
+
+  if (g_strcmp0(fl_method_call_get_name(method_call), "setWindowIcon") == 0) {
+    FlValue* args = fl_method_call_get_args(method_call);
+    FlValue* path = nullptr;
+    if (args != nullptr && fl_value_get_type(args) == FL_VALUE_TYPE_MAP) {
+      path = fl_value_lookup_string(args, "path");
+    }
+
+    gboolean applied = FALSE;
+    if (path != nullptr && fl_value_get_type(path) == FL_VALUE_TYPE_STRING &&
+        self->window != nullptr) {
+      g_autoptr(GError) error = nullptr;
+      applied = gtk_window_set_icon_from_file(
+          self->window, fl_value_get_string(path), &error);
+      if (error != nullptr) {
+        g_warning("Failed to set window icon: %s", error->message);
+      }
+    }
+
+    response = FL_METHOD_RESPONSE(
+        fl_method_success_response_new(fl_value_new_bool(applied)));
+  }
+
+  if (response == nullptr) {
+    response = FL_METHOD_RESPONSE(fl_method_not_implemented_response_new());
+  }
+  fl_method_call_respond(method_call, response, nullptr);
+}
 
 // Called when first Flutter frame received.
 static void first_frame_cb(MyApplication* self, FlView* view) {
@@ -24,6 +63,12 @@ static void my_application_activate(GApplication* application) {
   MyApplication* self = MY_APPLICATION(application);
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
+
+  self->window = window;
+
+  // Let the window manager resolve the packaged icon by name. The Dart side
+  // may later override this with an absolute file for the chosen variant.
+  gtk_window_set_icon_name(window, APPLICATION_ID);
 
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
@@ -75,6 +120,13 @@ static void my_application_activate(GApplication* application) {
 
   fl_register_plugins(FL_PLUGIN_REGISTRY(view));
 
+  FlEngine* engine = fl_view_get_engine(view);
+  self->app_icon_channel = fl_method_channel_new(
+      fl_engine_get_binary_messenger(engine), "com.hlomatsi.yomou/app_icon",
+      FL_METHOD_CODEC(fl_standard_method_codec_new()));
+  fl_method_channel_set_method_call_handler(
+      self->app_icon_channel, app_icon_method_call, self, nullptr);
+
   gtk_widget_grab_focus(GTK_WIDGET(view));
 }
 
@@ -121,6 +173,8 @@ static void my_application_shutdown(GApplication* application) {
 static void my_application_dispose(GObject* object) {
   MyApplication* self = MY_APPLICATION(object);
   g_clear_pointer(&self->dart_entrypoint_arguments, g_strfreev);
+  g_clear_object(&self->app_icon_channel);
+  self->window = nullptr;
   G_OBJECT_CLASS(my_application_parent_class)->dispose(object);
 }
 
