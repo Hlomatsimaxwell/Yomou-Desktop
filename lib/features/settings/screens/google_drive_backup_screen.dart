@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:yomou/core/auth/desktop_google_auth.dart';
 import 'package:yomou/core/auth/google_sign_in_service.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:http/http.dart' as http;
@@ -19,10 +19,13 @@ import 'package:yomou/widgets/m3_components.dart';
 
 /// Cloud backup via Google Drive.
 ///
-/// Uses Google Sign-In (OAuth) to obtain a Drive-scoped token, then the
-/// Drive v3 REST API to upload/download backup files in the user's own
-/// Drive. Works on Android and iOS once the OAuth client is configured in
-/// Google Cloud Console.
+/// Uses OAuth to obtain a Drive-scoped token, then the Drive v3 REST API to
+/// upload/download backup files in the user's own Drive.
+///
+/// - Android/iOS: the existing `google_sign_in` plugin (platform OAuth client).
+/// - Linux desktop: [DesktopGoogleAuth], a native installed-app OAuth flow.
+///   `google_sign_in` has no Linux implementation, so using it there throws
+///   `MissingPluginException`.
 class GoogleDriveBackupScreen extends ConsumerStatefulWidget {
   const GoogleDriveBackupScreen({super.key});
 
@@ -33,24 +36,20 @@ class GoogleDriveBackupScreen extends ConsumerStatefulWidget {
 
 class _GoogleDriveBackupScreenState
     extends ConsumerState<GoogleDriveBackupScreen> {
-  // Use the shared platform-configured client; on desktop this requires the
-  // YOMOU_GOOGLE_CLIENT_ID build define, otherwise sign-in is a no-op.
-  final _googleSignIn = GoogleSignInService.instance;
-
-  GoogleSignInAccount? _account;
+  _AccountInfo? _account;
   drive.DriveApi? _drive;
   bool _busy = false;
   String? _status;
   List<drive.File> _remoteFiles = const [];
 
+  bool get _isDesktop =>
+      Platform.isLinux || Platform.isWindows || Platform.isMacOS;
+
   /// Human-readable config hint; null when the platform is set up correctly.
   String? get _configHint {
-    if (GoogleSignInService.isDesktopConfigured) return null;
-    if (Platform.isLinux || Platform.isWindows || Platform.isMacOS) {
-      return 'Google Sign-In not configured for desktop yet.\n'
-          'Rebuild with: --dart-define=YOMOU_GOOGLE_CLIENT_ID=...';
-    }
-    return null;
+    if (!_isDesktop || DesktopGoogleAuth.isConfigured) return null;
+    return 'Google Sign-In not configured for desktop yet.\n'
+        'Rebuild with --dart-define=YOMOU_GOOGLE_CLIENT_ID=...';
   }
 
   @override
@@ -61,17 +60,43 @@ class _GoogleDriveBackupScreenState
 
   Future<void> _tryRestore() async {
     try {
-      final account = await _googleSignIn.signInSilently();
+      if (_isDesktop) {
+        final tokens = await DesktopGoogleAuth.restore();
+        if (tokens == null || !mounted) return;
+        _applyAccount(
+          email: tokens.email ?? 'Google account',
+          displayName: tokens.displayName,
+          authHeaders: DesktopGoogleAuth.authHeaders,
+        );
+        return;
+      }
+      final account = await GoogleSignInService.instance.signInSilently();
       if (account == null || !mounted) return;
-      final client = _AuthedClient(account);
-      setState(() {
-        _account = account;
-        _drive = drive.DriveApi(client);
-        _status = 'Signed in as ${account.email}';
-      });
+      _applyAccount(
+        email: account.email,
+        displayName: account.displayName,
+        authHeaders: () => account.authHeaders,
+      );
     } catch (_) {
       // Not signed in; leave the sign-in button visible.
     }
+  }
+
+  void _applyAccount({
+    required String email,
+    String? displayName,
+    required Future<Map<String, String>> Function() authHeaders,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      _account = _AccountInfo(
+        email: email,
+        displayName: displayName,
+        authHeaders: authHeaders,
+      );
+      _drive = drive.DriveApi(_AuthedClient(authHeaders));
+      _status = 'Signed in as $email';
+    });
   }
 
   @override
@@ -85,19 +110,29 @@ class _GoogleDriveBackupScreenState
       _status = null;
     });
     try {
-      final account = await _googleSignIn.signIn();
+      if (_isDesktop) {
+        final tokens = await DesktopGoogleAuth.signIn();
+        if (tokens == null) {
+          if (mounted) setState(() => _status = 'Sign-in not configured');
+          return;
+        }
+        _applyAccount(
+          email: tokens.email ?? 'Google account',
+          displayName: tokens.displayName,
+          authHeaders: DesktopGoogleAuth.authHeaders,
+        );
+        return;
+      }
+      final account = await GoogleSignInService.instance.signIn();
       if (account == null) {
         if (mounted) setState(() => _status = 'Sign-in cancelled');
         return;
       }
-      final client = _AuthedClient(account);
-      final driveApi = drive.DriveApi(client);
-      if (!mounted) return;
-      setState(() {
-        _account = account;
-        _drive = driveApi;
-        _status = 'Signed in as ${account.email}';
-      });
+      _applyAccount(
+        email: account.email,
+        displayName: account.displayName,
+        authHeaders: () => account.authHeaders,
+      );
     } catch (e) {
       if (!mounted) return;
       setState(() => _status = 'Sign-in error: $e');
@@ -122,7 +157,11 @@ class _GoogleDriveBackupScreenState
   }
 
   Future<void> _signOut() async {
-    await _googleSignIn.signOut();
+    if (_isDesktop) {
+      await DesktopGoogleAuth.signOut();
+    } else {
+      await GoogleSignInService.instance.signOut();
+    }
     if (!mounted) return;
     setState(() {
       _account = null;
@@ -299,8 +338,7 @@ class _GoogleDriveBackupScreenState
               ),
               if (_status != null) ...[
                 const SizedBox(height: 8),
-                Text(_status!,
-                    style: TextStyle(color: color.onSurfaceVariant)),
+                Text(_status!, style: TextStyle(color: color.onSurfaceVariant)),
               ],
               if (_remoteFiles.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -336,15 +374,27 @@ class _GoogleDriveBackupScreenState
 
 /// http.Client that injects the signed-in account's auth headers.
 class _AuthedClient extends http.BaseClient {
-  _AuthedClient(this._account);
+  _AuthedClient(this._authHeaders);
 
-  final GoogleSignInAccount _account;
+  final Future<Map<String, String>> Function() _authHeaders;
   final http.Client _inner = http.Client();
 
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    final headers = await _account.authHeaders;
-    request.headers.addAll(headers);
+    request.headers.addAll(await _authHeaders());
     return _inner.send(request);
   }
+}
+
+/// Signed-in account details shared by the mobile plugin and desktop OAuth.
+class _AccountInfo {
+  const _AccountInfo({
+    required this.email,
+    required this.displayName,
+    required this.authHeaders,
+  });
+
+  final String email;
+  final String? displayName;
+  final Future<Map<String, String>> Function() authHeaders;
 }
