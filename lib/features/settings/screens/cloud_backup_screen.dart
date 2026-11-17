@@ -18,8 +18,7 @@ import 'package:yomou/widgets/m3_components.dart';
 /// Cloud backup via WebDAV (self-hosted: Nextcloud, own server, ...).
 ///
 /// Uses HTTP basic auth against a user-provided WebDAV URL. Works on
-/// Android and iOS alike since it is plain HTTP. Google Drive support can
-/// be added later on top of the same upload/download helpers.
+/// Android, iOS and desktop alike since it is plain HTTP.
 class CloudBackupScreen extends ConsumerStatefulWidget {
   const CloudBackupScreen({super.key});
 

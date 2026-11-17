@@ -554,12 +554,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Create or restore a backup, Periodic backups';
 
   @override
-  String get settingsAccountsSync => 'Accounts and sync';
-
-  @override
-  String get settingsAccountsSyncSubtitle => 'Cloud backup, Sign in';
-
-  @override
   String get settingsAbout => 'About';
 
   @override
@@ -2500,9 +2494,6 @@ class AppLocalizationsEn extends AppLocalizations {
   String get cloudBackup => 'Cloud backup';
 
   @override
-  String get googleDriveBackup => 'Google Drive backup';
-
-  @override
   String get enablePeriodicBackups => 'Enable periodic backups';
 
   @override
@@ -3362,9 +3353,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get privacyPolicyBody =>
-      'Yomou is a manga reader. It stores your library, reading progress, favorites, bookmarks and settings locally on your device. Yomou does not collect personal data, run analytics, or include advertising.\n\nNetwork requests are made only to the manga sources you choose and to optional services you enable (cloud backup, update checks). Source requests use the source\'s own endpoints.\n\nOptional cloud backup (Google Drive / WebDAV) uploads an encrypted or plain backup of your library to a location you choose; Yomou never reads or transmits anything else. You can disable or delete these at any time.\n\nYou can export or erase all your data from Settings → Reset. Uninstalling the app removes all locally stored data.\n\nContact: see the project repository for support.';
+      'Yomou is a manga reader. It stores your library, reading progress, favorites, bookmarks and settings locally on your device. Yomou does not collect personal data, run analytics, or include advertising.\n\nNetwork requests are made only to the manga sources you choose and to optional services you enable (cloud backup, update checks). Source requests use the source\'s own endpoints.\n\nOptional cloud backup (WebDAV) uploads an encrypted or plain backup of your library to a location you choose; Yomou never reads or transmits anything else. You can disable or delete these at any time.\n\nYou can export or erase all your data from Settings → Reset. Uninstalling the app removes all locally stored data.\n\nContact: see the project repository for support.';
 
   @override
   String get termsOfServiceBody =>
-      'By using Yomou you agree to these terms.\n\nYomou is provided as-is, without warranty. It is a reader for manga hosted by third-party sources; you are responsible for the content you access and for complying with the terms of those sources and applicable law.\n\nYomou does not host, distribute or modify manga content. Cloud backup and sync features are optional and use your own storage (Google Drive / WebDAV); you are responsible for that storage.\n\nYou may export or delete your data at any time. The app may be updated to add or change features.\n\nFor questions, see the project repository.';
+      'By using Yomou you agree to these terms.\n\nYomou is provided as-is, without warranty. It is a reader for manga hosted by third-party sources; you are responsible for the content you access and for complying with the terms of those sources and applicable law.\n\nYomou does not host, distribute or modify manga content. Cloud backup and sync features are optional and use your own storage (WebDAV); you are responsible for that storage.\n\nYou may export or delete your data at any time. The app may be updated to add or change features.\n\nFor questions, see the project repository.';
 }

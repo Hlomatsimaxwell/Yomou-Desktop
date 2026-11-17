@@ -9,7 +9,6 @@ import 'package:yomou/core/widgets/responsive.dart';
 import 'package:yomou/l10n/generated/app_localizations.dart';
 import 'package:yomou/features/settings/screens/about_settings_screen.dart';
 import 'package:yomou/features/settings/screens/appearance_settings_screen.dart';
-import 'package:yomou/features/settings/screens/accounts_sync_screen.dart';
 import 'package:yomou/features/settings/screens/manga_sources_settings_screen.dart';
 import 'package:yomou/features/settings/screens/backup_restore_screen.dart';
 import 'package:yomou/features/settings/screens/privacy_policy_screen.dart';
@@ -222,13 +221,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         title: l.settingsBackup,
         subtitle: l.settingsBackupSubtitle,
         screen: const BackupRestoreScreen(),
-      ),
-      _Category(
-        group: l.settingsGroupData,
-        icon: 'ic_user',
-        title: l.settingsAccountsSync,
-        subtitle: l.settingsAccountsSyncSubtitle,
-        screen: const AccountsSyncScreen(),
       ),
       _Category(
         group: l.settingsGroupData,

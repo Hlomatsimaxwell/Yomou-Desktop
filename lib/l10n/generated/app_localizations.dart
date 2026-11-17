@@ -1052,18 +1052,6 @@ abstract class AppLocalizations {
   /// **'Create or restore a backup, Periodic backups'**
   String get settingsBackupSubtitle;
 
-  /// No description provided for @settingsAccountsSync.
-  ///
-  /// In en, this message translates to:
-  /// **'Accounts and sync'**
-  String get settingsAccountsSync;
-
-  /// No description provided for @settingsAccountsSyncSubtitle.
-  ///
-  /// In en, this message translates to:
-  /// **'Cloud backup, Sign in'**
-  String get settingsAccountsSyncSubtitle;
-
   /// No description provided for @settingsAbout.
   ///
   /// In en, this message translates to:
@@ -4561,12 +4549,6 @@ abstract class AppLocalizations {
   /// **'Cloud backup'**
   String get cloudBackup;
 
-  /// No description provided for @googleDriveBackup.
-  ///
-  /// In en, this message translates to:
-  /// **'Google Drive backup'**
-  String get googleDriveBackup;
-
   /// No description provided for @enablePeriodicBackups.
   ///
   /// In en, this message translates to:
@@ -6076,13 +6058,13 @@ abstract class AppLocalizations {
   /// No description provided for @privacyPolicyBody.
   ///
   /// In en, this message translates to:
-  /// **'Yomou is a manga reader. It stores your library, reading progress, favorites, bookmarks and settings locally on your device. Yomou does not collect personal data, run analytics, or include advertising.\n\nNetwork requests are made only to the manga sources you choose and to optional services you enable (cloud backup, update checks). Source requests use the source\'s own endpoints.\n\nOptional cloud backup (Google Drive / WebDAV) uploads an encrypted or plain backup of your library to a location you choose; Yomou never reads or transmits anything else. You can disable or delete these at any time.\n\nYou can export or erase all your data from Settings → Reset. Uninstalling the app removes all locally stored data.\n\nContact: see the project repository for support.'**
+  /// **'Yomou is a manga reader. It stores your library, reading progress, favorites, bookmarks and settings locally on your device. Yomou does not collect personal data, run analytics, or include advertising.\n\nNetwork requests are made only to the manga sources you choose and to optional services you enable (cloud backup, update checks). Source requests use the source\'s own endpoints.\n\nOptional cloud backup (WebDAV) uploads an encrypted or plain backup of your library to a location you choose; Yomou never reads or transmits anything else. You can disable or delete these at any time.\n\nYou can export or erase all your data from Settings → Reset. Uninstalling the app removes all locally stored data.\n\nContact: see the project repository for support.'**
   String get privacyPolicyBody;
 
   /// No description provided for @termsOfServiceBody.
   ///
   /// In en, this message translates to:
-  /// **'By using Yomou you agree to these terms.\n\nYomou is provided as-is, without warranty. It is a reader for manga hosted by third-party sources; you are responsible for the content you access and for complying with the terms of those sources and applicable law.\n\nYomou does not host, distribute or modify manga content. Cloud backup and sync features are optional and use your own storage (Google Drive / WebDAV); you are responsible for that storage.\n\nYou may export or delete your data at any time. The app may be updated to add or change features.\n\nFor questions, see the project repository.'**
+  /// **'By using Yomou you agree to these terms.\n\nYomou is provided as-is, without warranty. It is a reader for manga hosted by third-party sources; you are responsible for the content you access and for complying with the terms of those sources and applicable law.\n\nYomou does not host, distribute or modify manga content. Cloud backup and sync features are optional and use your own storage (WebDAV); you are responsible for that storage.\n\nYou may export or delete your data at any time. The app may be updated to add or change features.\n\nFor questions, see the project repository.'**
   String get termsOfServiceBody;
 }
 

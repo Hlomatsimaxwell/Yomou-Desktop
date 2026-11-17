@@ -7,10 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.1] - 2026-11-17
-
-### Fixed
-- **Desktop Google Sign-In** — opening Google Drive backup on Linux no longer throws `MissingPluginException`. `google_sign_in` has no Linux implementation, so desktop now uses a native installed-app OAuth flow (loopback redirect + PKCE in the system browser) while Android/iOS keep the plugin. Configure with `--dart-define=YOMOU_GOOGLE_CLIENT_ID=...` (optional `--dart-define=YOMOU_GOOGLE_CLIENT_SECRET=...`); no credentials are shipped in the app.
+### Removed
+- **Google Drive backup (desktop)** — removed the Drive sign-in/back-up screen, its OAuth helpers, the "Accounts and sync" settings category, and the `googleapis`/`google_sign_in` dependencies. The flow never worked reliably on Linux (`google_sign_in` has no Linux implementation), so it has been dropped from the desktop build. Local backup/restore and WebDAV are unchanged.
 
 ## [1.1.9] - 2026-11-01
 
